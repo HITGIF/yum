@@ -1,13 +1,13 @@
 opam-version: "2.0"
-synopsis: "A Discord library purely written in OCaml"
-description: "A Discord library purely written in OCaml"
-maintainer: ["Ushitora Anqou"]
-authors: ["Ushitora Anqou"]
+synopsis: "A Discord music player bot"
+description: "A Discord music player bot"
+maintainer: ["HITGIF"]
+authors: ["HITGIF"]
 license: "MIT"
 tags: ["discord"]
-homepage: "https://github.com/ushitora-anqou/discordml"
-doc: "https://github.com/ushitora-anqou/discordml"
-bug-reports: "https://github.com/ushitora-anqou/discordml/issues"
+homepage: "https://github.com/HITGIF/yum"
+doc: "https://github.com/HITGIF/yum"
+bug-reports: "https://github.com/HITGIF/yum/issues"
 depends: [
   "dune" {>= "3.10"}
   "ctypes"
@@ -43,7 +43,7 @@ build: [
     "@doc" {with-doc}
   ]
 ]
-dev-repo: "git+https://github.com/ushitora-anqou/discordml.git"
+dev-repo: "git+https://github.com/HITGIF/yum.git"
 pin-depends: [
   [ "cohttp.6.0.0~alpha2" "git+https://github.com/mirage/ocaml-cohttp#v6.0.0_beta1" ]
   [ "cohttp-eio.6.0.0~alpha2" "git+https://github.com/mirage/ocaml-cohttp#v6.0.0_beta1" ]
