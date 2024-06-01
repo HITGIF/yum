@@ -1,5 +1,5 @@
 (*
-  Architecture of Discord module:
+   Architecture of Discord module:
     - Fiber Gateway (x 1)
     - Fiber VoiceGateway (x # of guilds with voice)
     - Fiber VoiceUDPStream (x # of guilds with voice)

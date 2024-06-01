@@ -1,7 +1,10 @@
 module StringMap = Map.Make (String)
 
 module With_mutex = struct
-  type 'a t = { mtx : Eio.Mutex.t; v : 'a }
+  type 'a t =
+    { mtx : Eio.Mutex.t
+    ; v : 'a
+    }
 
   let make v = { mtx = Eio.Mutex.create (); v }
   let ro_lock { mtx; v } f = Eio.Mutex.use_ro mtx (fun () -> f v)
@@ -18,11 +21,12 @@ module List = struct
 
   let take_at_most n =
     let rec aux n acc = function
-      | [] -> (List.rev acc, [])
-      | rest when n = 0 -> (List.rev acc, rest)
+      | [] -> List.rev acc, []
+      | rest when n = 0 -> List.rev acc, rest
       | x :: xs -> aux (n - 1) (x :: acc) xs
     in
     aux n []
+  ;;
 end
 
 let now () = Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ()))
@@ -30,7 +34,10 @@ let now () = Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ()))
 module Option = struct
   include Option
 
-  let flatten = function Some x -> x | None -> None
+  let flatten = function
+    | Some x -> x
+    | None -> None
+  ;;
 end
 
 module Result = struct

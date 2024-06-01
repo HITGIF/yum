@@ -16,7 +16,7 @@ end = struct
 end
 
 module Guild_state = struct
-  module Playing = struct
+  module State = struct
     type t =
       { channel_id : string
       ; queued_videos : Video_id.t Deque.t
@@ -25,8 +25,8 @@ module Guild_state = struct
 
   type t =
     | Idle
-    | Joining of Playing.t
-    | Playing of Playing.t
+    | Joining of State.t
+    | Playing of State.t
 
   let init = Idle
 end
@@ -63,12 +63,11 @@ module Command = struct
 end
 
 let read_videos ~filename =
-  let ret = Deque.create () in
   In_channel.read_lines filename
   |> List.map ~f:Video_id.of_string
   |> List.permute
-  |> List.iter ~f:(Deque.enqueue_back ret);
-  ret
+  |> List.to_array
+  |> Deque.of_array
 ;;
 
 let send_message rest message ~channel_id =

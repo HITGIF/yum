@@ -46,3 +46,4 @@ let of_string = function
   | "AUTO_MODERATION_CONFIGURATION" -> AUTO_MODERATION_CONFIGURATION
   | "AUTO_MODERATION_EXECUTION" -> AUTO_MODERATION_EXECUTION
   | _ -> failwith (__FUNCTION__ ^ ": Unknown intent")
+;;

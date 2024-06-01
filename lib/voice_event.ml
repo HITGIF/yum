@@ -1,36 +1,55 @@
 open Ppx_yojson_conv_lib.Yojson_conv.Primitives
 
-type ready = { ssrc : int; ip : string; port : int; modes : string list }
+type ready =
+  { ssrc : int
+  ; ip : string
+  ; port : int
+  ; modes : string list
+  }
 [@@yojson.allow_extra_fields] [@@deriving yojson, show]
 
-type identify = {
-  server_id : string;
-  user_id : string;
-  session_id : string;
-  token : string;
-}
+type identify =
+  { server_id : string
+  ; user_id : string
+  ; session_id : string
+  ; token : string
+  }
 [@@yojson.allow_extra_fields] [@@deriving yojson, show]
 
-type select_protocol_data = { address : string; port : int; mode : string }
+type select_protocol_data =
+  { address : string
+  ; port : int
+  ; mode : string
+  }
 [@@yojson.allow_extra_fields] [@@deriving yojson, show]
 
-type select_protocol = { protocol : string; data : select_protocol_data }
+type select_protocol =
+  { protocol : string
+  ; data : select_protocol_data
+  }
 [@@yojson.allow_extra_fields] [@@deriving yojson, show]
 
-type session_description = { mode : string; secret_key : int list }
+type session_description =
+  { mode : string
+  ; secret_key : int list
+  }
 [@@yojson.allow_extra_fields] [@@deriving yojson, show]
 
-type speaking = {
-  speaking : int;
-  delay : int option; [@yojson.option]
-  ssrc : int;
-}
+type speaking =
+  { speaking : int
+  ; delay : int option [@yojson.option]
+  ; ssrc : int
+  }
 [@@yojson.allow_extra_fields] [@@deriving yojson, show]
 
 type hello = { heartbeat_interval : float }
 [@@yojson.allow_extra_fields] [@@deriving yojson, show]
 
-type resume = { server_id : string; session_id : string; token : string }
+type resume =
+  { server_id : string
+  ; session_id : string
+  ; token : string
+  }
 [@@yojson.allow_extra_fields] [@@deriving yojson, show]
 
 type t =
@@ -68,19 +87,20 @@ let of_yojson json =
     | 18 -> Unknown_18
     | 20 -> Unknown_20
     | _ -> failwith "Invalid op"
-  with Type_error _ -> failwith "Invalid JSON for event"
+  with
+  | Type_error _ -> failwith "Invalid JSON for event"
+;;
 
 let to_yojson = function
-  | Identify d -> `Assoc [ ("op", `Int 0); ("d", yojson_of_identify d) ]
-  | SelectProtocol d ->
-      `Assoc [ ("op", `Int 1); ("d", yojson_of_select_protocol d) ]
-  | Ready d -> `Assoc [ ("op", `Int 2); ("d", yojson_of_ready d) ]
-  | Heartbeat d -> `Assoc [ ("op", `Int 3); ("d", `Int d) ]
-  | SessionDescription d ->
-      `Assoc [ ("op", `Int 4); ("d", yojson_of_session_description d) ]
-  | Speaking d -> `Assoc [ ("op", `Int 5); ("d", yojson_of_speaking d) ]
-  | HeartbeatAck d -> `Assoc [ ("op", `Int 6); ("d", `Int d) ]
-  | Resume d -> `Assoc [ ("op", `Int 7); ("d", yojson_of_resume d) ]
-  | Hello d -> `Assoc [ ("op", `Int 8); ("d", yojson_of_hello d) ]
-  | Resumed -> `Assoc [ ("op", `Int 9); ("d", `Null) ]
+  | Identify d -> `Assoc [ "op", `Int 0; "d", yojson_of_identify d ]
+  | SelectProtocol d -> `Assoc [ "op", `Int 1; "d", yojson_of_select_protocol d ]
+  | Ready d -> `Assoc [ "op", `Int 2; "d", yojson_of_ready d ]
+  | Heartbeat d -> `Assoc [ "op", `Int 3; "d", `Int d ]
+  | SessionDescription d -> `Assoc [ "op", `Int 4; "d", yojson_of_session_description d ]
+  | Speaking d -> `Assoc [ "op", `Int 5; "d", yojson_of_speaking d ]
+  | HeartbeatAck d -> `Assoc [ "op", `Int 6; "d", `Int d ]
+  | Resume d -> `Assoc [ "op", `Int 7; "d", yojson_of_resume d ]
+  | Hello d -> `Assoc [ "op", `Int 8; "d", yojson_of_hello d ]
+  | Resumed -> `Assoc [ "op", `Int 9; "d", `Null ]
   | Unknown_13 | Unknown_18 | Unknown_20 -> assert false
+;;
