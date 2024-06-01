@@ -62,8 +62,8 @@ module Command = struct
   ;;
 end
 
-let read_videos ~filename =
-  In_channel.read_lines filename
+let read_videos ~videos_file_path =
+  In_channel.read_lines videos_file_path
   |> List.map ~f:Video_id.of_string
   |> List.permute
   |> List.to_array
@@ -118,7 +118,7 @@ let handle_event _env ~sw:_ ~videos_file_path agent rest (state : State.t) event
               send_message rest ~channel_id "Already started";
               guild_state
             | Idle ->
-              let queued_videos = read_videos ~filename:videos_file_path in
+              let queued_videos = read_videos ~videos_file_path in
               join agent ~guild_id ~user_id:msg.author.id;
               Joining { channel_id; queued_videos })
          | Stop ->
@@ -194,22 +194,7 @@ let handle_event _env ~sw:_ ~videos_file_path agent rest (state : State.t) event
   | _ -> state
 ;;
 
-let () =
-  Logs.set_reporter (Logs_fmt.reporter ());
-  Logs.set_level (Some Logs.Info);
-  let token =
-    match Sys.getenv "DISCORD_TOKEN" with
-    | Some s -> s
-    | None -> failwith "DISCORD_TOKEN not set"
-  in
-  let intents =
-    Discord.Intent.encode [ GUILDS; GUILD_VOICE_STATES; GUILD_MESSAGES; MESSAGE_CONTENT ]
-  in
-  let youtubedl_path = Sys.getenv "YOUTUBEDL_PATH" in
-  let ffmpeg_path = Sys.getenv "FFMPEG_PATH" in
-  let videos_file_path =
-    Sys.getenv "VIDEOS_FILE_PATH" |> Option.value ~default:"videos.txt"
-  in
+let main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path =
   Eio_main.run
   @@ fun env ->
   Mirage_crypto_rng_eio.run (module Mirage_crypto_rng.Fortuna) env
@@ -220,12 +205,54 @@ let () =
     Discord.Consumer.start
       env
       ~sw
-      ~token
-      ~intents
+      ~token:discord_token
+      ~intents:
+        (Discord.Intent.encode
+           [ GUILDS; GUILD_VOICE_STATES; GUILD_MESSAGES; MESSAGE_CONTENT ])
       ?ffmpeg_path
       ?youtubedl_path
       (fun () -> State.init)
       (handle_event ~videos_file_path)
   in
   ()
+;;
+
+let command =
+  let open Core.Command.Param in
+  let make_optional_param ~flag:flag_name ~env =
+    flag flag_name (optional string) ~doc:""
+    |> map ~f:(Option.value_map ~f:Option.return ~default:(Sys.getenv env))
+  in
+  let make_required_param ~flag ~env ~default =
+    make_optional_param ~flag ~env
+    |> map
+         ~f:
+           (Option.value
+              ~default:
+                (match default with
+                 | `Value v -> v
+                 | `Raise ->
+                   Error.raise_s
+                     [%message
+                       "Missing required parameter" (flag : string) (env : string)]))
+  in
+  Core.Command.basic
+    ~summary:"yum"
+    (let%map.Core.Command discord_token =
+       make_required_param ~flag:"-discord-token" ~env:"YUM_DISCORD_TOKEN" ~default:`Raise
+     and videos_file_path =
+       make_required_param
+         ~flag:"-videos-file"
+         ~env:"YUM_VIDEOS_FILE"
+         ~default:(`Value "videos.txt")
+     and youtubedl_path =
+       make_optional_param ~flag:"-youtubedl-path" ~env:"YUM_YOUTUBEDL_PATH"
+     and ffmpeg_path = make_optional_param ~flag:"-ffmpeg-path" ~env:"YUM_FFMPEG_PATH" in
+     fun () -> main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path)
+;;
+
+let () =
+  Logs.set_reporter (Logs_fmt.reporter ());
+  Logs.set_level (Some Logs.Info);
+  Command_unix.run command
 ;;

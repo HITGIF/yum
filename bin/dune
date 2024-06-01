@@ -3,6 +3,7 @@
  (name main)
  (libraries
   core
+  core_unix.command_unix
   discord
   eio
   eio.core
