@@ -217,7 +217,7 @@ let main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path =
   ()
 ;;
 
-let command =
+let main_command =
   let open Core.Command.Param in
   let optional_param ~arg ~arg_type ~env ~doc =
     flag arg (optional arg_type) ~doc:(doc ^ " (env: " ^ env ^ ")")
@@ -236,7 +236,7 @@ let command =
                [%message "Missing required parameter" ~flag:(arg : string) (env : string)]))
   in
   Core.Command.basic
-    ~summary:"yum"
+    ~summary:"😋 A Discord music player bot, based on discordml."
     (let%map_open.Core.Command discord_token =
        required_param
          ~arg:"-discord-bot-token"
@@ -270,5 +270,5 @@ let command =
 let () =
   Logs.set_reporter (Logs_fmt.reporter ());
   Logs.set_level (Some Logs.Info);
-  Command_unix.run command
+  Command_unix.run main_command
 ;;
