@@ -219,35 +219,51 @@ let main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path =
 
 let command =
   let open Core.Command.Param in
-  let make_optional_param ~flag:flag_name ~env =
-    flag flag_name (optional string) ~doc:""
+  let optional_param ~arg ~arg_type ~env ~doc =
+    flag arg (optional arg_type) ~doc:(doc ^ " (env: " ^ env ^ ")")
     |> map ~f:(Option.value_map ~f:Option.return ~default:(Sys.getenv env))
   in
-  let make_required_param ~flag ~env ~default =
-    make_optional_param ~flag ~env
-    |> map
-         ~f:
-           (Option.value
-              ~default:
-                (match default with
-                 | `Value v -> v
-                 | `Raise ->
-                   Error.raise_s
-                     [%message
-                       "Missing required parameter" (flag : string) (env : string)]))
+  let required_param ~arg ~arg_type ~env ~doc ~if_missing =
+    optional_param ~arg ~arg_type ~env ~doc
+    |> map ~f:(fun param ->
+      match if_missing with
+      | `Default default -> Option.value param ~default
+      | `Raise ->
+        Option.value_exn
+          param
+          ~error:
+            (Error.create_s
+               [%message "Missing required parameter" ~flag:(arg : string) (env : string)]))
   in
   Core.Command.basic
     ~summary:"yum"
-    (let%map.Core.Command discord_token =
-       make_required_param ~flag:"-discord-token" ~env:"YUM_DISCORD_TOKEN" ~default:`Raise
+    (let%map_open.Core.Command discord_token =
+       required_param
+         ~arg:"-discord-bot-token"
+         ~arg_type:string
+         ~env:"YUM_DISCORD_BOT_TOKEN"
+         ~doc:"STRING Discord bot token"
+         ~if_missing:`Raise
      and videos_file_path =
-       make_required_param
-         ~flag:"-videos-file"
+       required_param
+         ~arg:"-videos-file"
+         ~arg_type:Filename_unix.arg_type
          ~env:"YUM_VIDEOS_FILE"
-         ~default:(`Value "videos.txt")
+         ~doc:"FILE Path to the file containing the list of YouTube video ids"
+         ~if_missing:(`Default "videos.txt")
      and youtubedl_path =
-       make_optional_param ~flag:"-youtubedl-path" ~env:"YUM_YOUTUBEDL_PATH"
-     and ffmpeg_path = make_optional_param ~flag:"-ffmpeg-path" ~env:"YUM_FFMPEG_PATH" in
+       optional_param
+         ~arg:"-youtubedl-path"
+         ~arg_type:Filename_unix.arg_type
+         ~env:"YUM_YOUTUBEDL_PATH"
+         ~doc:"FILE Path to the youtube-dl binary"
+     and ffmpeg_path =
+       optional_param
+         ~arg:"-ffmpeg-path"
+         ~arg_type:Filename_unix.arg_type
+         ~env:"YUM_FFMPEG_PATH"
+         ~doc:"FILE Path to the ffmpeg binary"
+     in
      fun () -> main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path)
 ;;
 
