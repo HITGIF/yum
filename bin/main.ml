@@ -26,11 +26,18 @@ let main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path =
 let main_command =
   let open Command.Param in
   let optional_param ~arg ~arg_type ~env ~doc =
-    flag arg (optional arg_type) ~doc:(doc ^ " (env: " ^ env ^ ")")
+    flag arg (optional arg_type) ~doc:(doc ^ [%string " (env: %{env})"])
     |> map ~f:(Option.value_map ~f:Option.return ~default:(Sys.getenv env))
   in
   let required_param ~arg ~arg_type ~env ~doc ~if_missing =
-    optional_param ~arg ~arg_type ~env ~doc
+    optional_param
+      ~arg
+      ~arg_type
+      ~env
+      ~doc:
+        (match if_missing with
+         | `Raise -> doc
+         | `Default default -> doc ^ [%string " (default: %{default})"])
     |> map ~f:(fun param ->
       match if_missing with
       | `Default default -> Option.value param ~default
@@ -62,13 +69,19 @@ let main_command =
          ~arg:"-youtubedl-path"
          ~arg_type:Filename_unix.arg_type
          ~env:"YUM_YOUTUBEDL_PATH"
-         ~doc:"FILE Path to the youtube-dl binary"
+         ~doc:
+           [%string
+             "FILE Path to the youtube-dl binary (default: \
+              %{Discord.Consumer.default_ffmpeg_path})"]
      and ffmpeg_path =
        optional_param
          ~arg:"-ffmpeg-path"
          ~arg_type:Filename_unix.arg_type
          ~env:"YUM_FFMPEG_PATH"
-         ~doc:"FILE Path to the ffmpeg binary"
+         ~doc:
+           [%string
+             "FILE Path to the ffmpeg binary (default: \
+              %{Discord.Consumer.default_youtubedl_path})"]
      in
      fun () -> main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path)
 ;;
@@ -76,5 +89,5 @@ let main_command =
 let () =
   Logs.set_reporter (Logs_fmt.reporter ());
   Logs.set_level (Some Logs.Info);
-  Command_unix.run main_command
+  Command_unix_for_opam.run main_command
 ;;

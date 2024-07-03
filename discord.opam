@@ -1,4 +1,5 @@
 opam-version: "2.0"
+version: "0.1.1"
 synopsis: "A Discord music player bot"
 description: "A Discord music player bot"
 maintainer: ["HITGIF"]
@@ -10,12 +11,15 @@ doc: "https://github.com/HITGIF/yum"
 bug-reports: "https://github.com/HITGIF/yum/issues"
 depends: [
   "dune" {>= "3.10"}
+  "command-unix-for-opam"
+  "core_unix"
   "ctypes"
   "ctypes-foreign"
   "eio_main" {>= "0.12"}
   "mirage-clock-unix"
   "mirage-crypto-rng-eio"
   "ocaml" {>= "5.0.0"}
+  "ppx_string"
   "ppx_yojson_conv"
   "tls-eio"
   "websocket"
@@ -49,4 +53,5 @@ pin-depends: [
   [ "cohttp-eio.6.0.0~alpha2" "git+https://github.com/mirage/ocaml-cohttp#v6.0.0_beta1" ]
   [ "sodium.dev" "git+https://github.com/ahrefs/ocaml-sodium#734eccbb47e7545a459a504188f1da8dc0bd018e" ]
   [ "actaa.dev" "git+https://github.com/ushitora-anqou/actaa#7535a7718d846fa5398b47bdc9285ec99632152d" ]
+  [ "command-unix-for-opam.0.0.5" "git+https://github.com/mbarbin/command-unix-for-opam#0.0.5" ]
 ]

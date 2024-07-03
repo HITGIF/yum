@@ -2,6 +2,7 @@
  (public_name yum)
  (name main)
  (libraries
+  command-unix-for-opam
   core
   core_unix.filename_unix
   core_unix.command_unix
