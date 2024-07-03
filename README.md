@@ -13,6 +13,7 @@ wget https://github.com/ytdl-org/ytdl-nightly/releases/latest/download/youtube-d
 chmod +x youtube-dl
 sudo mv youtube-dl /usr/bin # or somewhere else you prefer
 ```
+> Make sure `python` is aliased to `python3`. If not, run `sudo apt install -y python-is-python3`
 3. Download [yum](https://github.com/HITGIF/yum)
 ```sh
 wget https://github.com/HITGIF/yum/releases/latest/download/yum
