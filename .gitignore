@@ -30,7 +30,6 @@ setup.log
 _opam/
 note.md
 misc/
-Makefile
 
 *.out
 --Frag0
