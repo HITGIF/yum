@@ -79,6 +79,9 @@ let spawn_youtubedl process_mgr ~sw ~stdout ~path:(executable : string) url =
     ; "-q"
     ; "--no-warnings"
     ; "--no-continue"
+    ; "--user-agent"
+    ; "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) \
+       Chrome/127.0.6533.103 Mobile Safari/537.36"
     ; url
     ]
 ;;
