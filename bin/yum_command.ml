@@ -1,4 +1,5 @@
 open! Core
+open Or_error.Let_syntax
 
 type t =
   | Ping
@@ -36,7 +37,7 @@ let parse_no_arg command = function
 ;;
 
 let parse_single_video command = function
-  | [ url ] -> Ok (command (Video_id.of_url_exn url))
+  | [ url ] -> Video_id.of_url url >>| command
   | [] -> too_few_args
   | _ -> too_many_args
 ;;
@@ -83,11 +84,7 @@ let commands : Command.t list =
 let help_text =
   [ "Available commands:"; "```" ]
   @ List.map commands ~f:Command.help_text
-  @ [ "```"
-    ; "> Supported `<url>` formats:"
-    ; "> - `https://www.youtube.com/watch?v=[...]`"
-    ; ""
-    ]
+  @ [ "```"; Video_id.supported_url_formats_msg; "" ]
   |> String.concat ~sep:"\n"
 ;;
 
@@ -103,10 +100,8 @@ let parse s =
   match String.split ~on:' ' s |> List.filter ~f:(Fn.compose not String.is_empty) with
   | "yum" :: name :: args ->
     (match Map.find name_to_command name with
+     | Some { parse_args; _ } -> parse_args args >>| Option.return
      | None ->
-       Or_error.error_string [%string "Command not found: `%{name}`\n%{help_text}"]
-     | Some { parse_args; _ } ->
-       let%map.Or_error command = parse_args args in
-       Some command)
+       Or_error.error_string [%string "Command not found: `%{name}`\n%{help_text}"])
   | _ -> Ok None
 ;;
