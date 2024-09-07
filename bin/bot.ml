@@ -9,10 +9,12 @@ let read_videos ~videos_file_path =
 ;;
 
 let send_message rest message ~channel_id =
-  if Discord.Rest.make_create_message_param ~content:message ()
-     |> Discord.Rest.create_message channel_id rest
-     |> Result.is_error
-  then Logs.err (fun m -> m "Failed to send message")
+  match
+    Discord.Rest.make_create_message_param ~content:message ()
+    |> Discord.Rest.create_message channel_id rest
+  with
+  | Ok _ -> ()
+  | Error err -> Logs.err (fun m -> m "Failed to send message: %s" err)
 ;;
 
 let join agent ~guild_id ~user_id =
@@ -48,6 +50,9 @@ let handle_event _env ~sw:_ ~videos_file_path agent rest state = function
       | Ok None -> guild_state
       | Ok (Some command) ->
         (match command with
+         | Help ->
+           send_message rest Yum_command.help_text ~channel_id;
+           guild_state
          | Ping ->
            send_message rest "pong" ~channel_id;
            guild_state

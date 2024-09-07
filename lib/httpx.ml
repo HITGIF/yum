@@ -1,5 +1,5 @@
 open struct
-  let random_string len = Mirage_crypto_rng.generate len |> Cstruct.to_string
+  let random_string len = Mirage_crypto_rng.generate len
 end
 
 module Http = struct
@@ -8,7 +8,11 @@ module Http = struct
   ;;
 
   let https ~authenticator =
-    let tls_config = Tls.Config.client ~authenticator () in
+    let tls_config =
+      match Tls.Config.client ~authenticator () with
+      | Ok client -> client
+      | Error (`Msg msg) -> failwith msg
+    in
     fun uri raw ->
       let host =
         Uri.host uri |> Option.map (fun x -> Domain_name.(host_exn (of_string_exn x)))
@@ -100,15 +104,19 @@ module Ws = struct
       let host =
         Result.to_option (Result.bind (Domain_name.of_string host) Domain_name.host)
       in
-      Tls_eio.client_of_flow
-        Tls.Config.(
-          client
-            ~version:(`TLS_1_0, `TLS_1_3)
-            ~authenticator
-            ~ciphers:Ciphers.supported
-            ())
-        ?host
-        socket
+      let tls_config =
+        match
+          Tls.Config.(
+            client
+              ~version:(`TLS_1_0, `TLS_1_3)
+              ~authenticator
+              ~ciphers:Ciphers.supported
+              ())
+        with
+        | Ok client -> client
+        | Error (`Msg msg) -> failwith msg
+      in
+      Tls_eio.client_of_flow tls_config ?host socket
     in
     (* Drain handshake *)
     let ic = Eio.Buf_read.of_flow ~max_size:max_int flow in
