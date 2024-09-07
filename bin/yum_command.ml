@@ -80,7 +80,7 @@ let help_text =
   @ List.map commands ~f:Command.help_text
   @ [ Command.pad_synopsis "[ help | h ]" ^ ": print this help text"
     ; "```"
-    ; "> Supported `<url>` format:"
+    ; "> Supported `<url>` formats:"
     ; "> - `https://www.youtube.com/watch?v=[...]`"
     ; ""
     ]
