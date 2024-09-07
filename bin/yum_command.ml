@@ -72,14 +72,18 @@ let commands : Command.t list =
     ; args = ""
     ; parse_args = parse_no_arg ping
     }
+  ; { names = [ "help"; "h" ]
+    ; summary = "print this help text"
+    ; args = ""
+    ; parse_args = parse_no_arg help
+    }
   ]
 ;;
 
 let help_text =
   [ "Available commands:"; "```" ]
   @ List.map commands ~f:Command.help_text
-  @ [ Command.pad_synopsis "[ help | h ]" ^ ": print this help text"
-    ; "```"
+  @ [ "```"
     ; "> Supported `<url>` formats:"
     ; "> - `https://www.youtube.com/watch?v=[...]`"
     ; ""
@@ -97,7 +101,6 @@ let name_to_command =
 
 let parse s =
   match String.split ~on:' ' s |> List.filter ~f:(Fn.compose not String.is_empty) with
-  | "yum" :: "help" :: _ | "yum" :: "h" :: _ -> Ok (Some Help)
   | "yum" :: name :: args ->
     (match Map.find name_to_command name with
      | None ->
