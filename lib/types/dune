@@ -1,5 +1,6 @@
 (library
- (name yum)
+ (name types)
+ (inline_tests)
  (preprocess
   (pps ppx_string ppx_jane))
- (libraries core discord types))
+ (libraries core))

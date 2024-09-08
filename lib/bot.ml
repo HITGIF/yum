@@ -1,8 +1,9 @@
 open! Core
+open Types
 
 let read_videos ~videos_file_path =
   In_channel.read_lines videos_file_path
-  |> List.map ~f:Video_id.of_string
+  |> List.map ~f:Video_id.of_youtube_string
   |> List.permute
   |> List.to_array
   |> Deque.of_array

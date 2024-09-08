@@ -1,4 +1,5 @@
 open! Core
+open Types
 open Or_error.Let_syntax
 
 type t =

@@ -4,6 +4,7 @@ default:
 	@echo "  deps-macos"
 	@echo "  build (b)"
 	@echo "  build-watch (w)"
+	@echo "  test (t)"
 	@echo "  clean"
 
 deps:
@@ -30,6 +31,12 @@ build-watch:
 	dune build -w
 
 w: build-watch
+
+test:
+	dune runtest || true
+	dune promote
+
+t: test
 
 clean:
 	dune clean

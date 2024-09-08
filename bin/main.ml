@@ -1,4 +1,5 @@
 open! Core
+open Yum
 
 let main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path =
   Eio_main.run

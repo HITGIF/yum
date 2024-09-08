@@ -6,13 +6,13 @@
   core
   core_unix.filename_unix
   core_unix.command_unix
-  discord
   eio
   eio.core
   eio.unix
   eio_main
   logs
-  mirage-crypto-rng-eio)
+  mirage-crypto-rng-eio
+  yum)
  (preprocess
   (pps ppx_string ppx_jane))
  (flags :standard -cclib -lopus))
