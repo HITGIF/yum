@@ -11,7 +11,11 @@ type leave_channel = { guild_id : string }
 
 type play_voice =
   { guild_id : string
-  ; src : [ `Pipe of Eio.Flow.source_ty Eio.Resource.t | `Ytdl of string ]
+  ; src :
+      [ `Pipe of Eio.Flow.source_ty Eio.Resource.t
+      | `Ytdl of string
+      | `Bilibili of string
+      ]
   }
 
 type skip = { guild_id : string }
@@ -161,7 +165,8 @@ class t =
               in
               play src;
               Eio.Flow.close src;
-              Eio.Flow.close sink));
+              Eio.Flow.close sink
+            | `Bilibili _url -> failwith ""));
         `NoReply state
       | `ForceResumeGateway ->
         Gateway.force_resume gw;

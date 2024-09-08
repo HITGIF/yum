@@ -29,7 +29,8 @@ let join agent ~guild_id ~user_id =
 
 let leave ~guild_id = Discord.Agent.leave_channel ~guild_id
 
-let play agent rest ~guild_id ~channel_id ~url =
+let play agent rest ~guild_id ~channel_id ~video_id =
+  let url = Video_id.to_url video_id in
   Logs.info (fun m -> m "Playing %s" url);
   send_message rest ~channel_id [%string "Playing %{url}"];
   Discord.Agent.play_voice agent ~guild_id ~src:(`Ytdl url)
@@ -78,7 +79,7 @@ let handle_event _env ~sw:_ ~videos_file_path agent rest state = function
               send_message rest ~channel_id "Skipped";
               (match Deque.dequeue_front queued_videos with
                | Some video_id ->
-                 play agent rest ~guild_id ~channel_id ~url:(Video_id.to_url video_id);
+                 play agent rest ~guild_id ~channel_id ~video_id;
                  guild_state
                | None ->
                  send_message rest ~channel_id "Done";
@@ -97,7 +98,7 @@ let handle_event _env ~sw:_ ~videos_file_path agent rest state = function
            (match guild_state with
             | Playing _ | Joining _ ->
               Discord.Agent.skip agent ~guild_id;
-              play agent rest ~guild_id ~channel_id ~url:(Video_id.to_url video_id);
+              play agent rest ~guild_id ~channel_id ~video_id;
               guild_state
             | Idle ->
               join agent ~guild_id ~user_id:msg.author.id;
@@ -114,7 +115,7 @@ let handle_event _env ~sw:_ ~videos_file_path agent rest state = function
       | Joining { channel_id; queued_videos } ->
         (match Deque.dequeue_front queued_videos with
          | Some video_id ->
-           play agent rest ~guild_id ~channel_id ~url:(Video_id.to_url video_id);
+           play agent rest ~guild_id ~channel_id ~video_id;
            Playing { channel_id; queued_videos }
          | None -> Idle)
     in
@@ -132,7 +133,7 @@ let handle_event _env ~sw:_ ~videos_file_path agent rest state = function
         | Playing { channel_id; queued_videos } ->
           (match Deque.dequeue_front queued_videos with
            | Some video_id ->
-             play agent rest ~guild_id ~channel_id ~url:(Video_id.to_url video_id);
+             play agent rest ~guild_id ~channel_id ~video_id;
              guild_state
            | None ->
              send_message rest ~channel_id "Done";
