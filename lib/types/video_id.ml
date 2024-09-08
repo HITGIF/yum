@@ -3,17 +3,16 @@ open! Core
 module Option = struct
   include Option
 
-  let map_or ~f ~else_ = function
-    | Some x -> f x
-    | None -> else_ ()
+  let or_else ~f = function
+    | Some x -> Some x
+    | None -> f ()
   ;;
-
-  let or_else f = map_or ~f:Option.return ~else_:f
 end
 
 module Youtube : sig
   type t
 
+  val supported_url_formats : string list
   val of_string : string -> t
   val of_url : string -> t option
   val to_url : t -> string
@@ -22,12 +21,17 @@ end = struct
 
   let prefix_normal = "https://www.youtube.com/watch?v="
   let prefix_short = "https://youtu.be/"
+
+  let supported_url_formats =
+    [ prefix_normal; prefix_short ] |> List.map ~f:(fun x -> [%string "%{x}[...]"])
+  ;;
+
   let of_string = Fn.id
 
   let of_url url =
     let url = String.strip url in
     String.chop_prefix url ~prefix:prefix_normal
-    |> Option.or_else (fun () -> String.chop_prefix ~prefix:prefix_short url)
+    |> Option.or_else ~f:(fun () -> String.chop_prefix ~prefix:prefix_short url)
     |> Option.map ~f:(Fn.compose List.hd_exn (String.split ~on:'?'))
     |> Option.map ~f:(Fn.compose List.hd_exn (String.split ~on:'&'))
   ;;
@@ -38,17 +42,21 @@ end
 type t = Youtube of Youtube.t [@@deriving variants]
 
 let supported_url_formats_msg =
-  [ "> Supported `<url>` formats:"; "> - `https://www.youtube.com/watch?v=[...]`" ]
+  [ "> Supported `<url>` formats:" ]
+  @ (Youtube.supported_url_formats |> List.map ~f:(fun x -> [%string "> - `%{x}`"]))
   |> String.concat ~sep:"\n"
 ;;
 
 let of_youtube_string = Fn.compose youtube Youtube.of_string
 
 let of_url url =
-  Youtube.of_url url
-  |> Option.map_or ~f:(Fn.compose Or_error.return youtube) ~else_:(fun () ->
+  Fn.compose Option.map ~f:youtube Youtube.of_url url
+  |> Option.or_else ~f:(fun () -> None)
+  |> function
+  | Some x -> Ok x
+  | None ->
     Or_error.error_string
-      [%string "URL format is not supported.\n\n%{supported_url_formats_msg}"])
+      [%string "URL format is not supported.\n\n%{supported_url_formats_msg}"]
 ;;
 
 let to_url = function
@@ -57,7 +65,7 @@ let to_url = function
 
 let%test_module "_" =
   (module struct
-    let%expect_test "youtube" =
+    let%expect_test "youtube url normalization" =
       let test url =
         Youtube.(url |> of_url |> Option.value_exn |> to_url |> print_endline)
       in
