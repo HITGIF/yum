@@ -1,5 +1,4 @@
 open! Core
-open Types
 open Or_error.Let_syntax
 
 type t =
@@ -105,4 +104,28 @@ let parse s =
      | None ->
        Or_error.error_string [%string "Command not found: `%{name}`\n%{help_text}"])
   | _ -> Ok None
+;;
+
+let%test_module "_" =
+  (module struct
+    let%expect_test "help text" =
+      print_endline help_text;
+      [%expect {|
+        Available commands:
+        ```
+        [ start | s ]            : start shuffling songs
+        [ stop | q ]             : stop playing all songs
+        [ skip | n ]             : skip the current song
+        [ play | p ] <url>       : queue a song to play next (LIFO)
+        [ play! | p! ] <url>     : play a song immediately
+        [ ping ]                 : ping yum for a pong
+        [ help | h ]             : print this help text
+        ```
+        > Supported `<url>` formats:
+        > - `[...]https://www.youtube.com/watch?v=<id>[...]`
+        > - `[...]https://youtu.be/<id>[...]`
+        > - `[...]https://www.bilibili.com/video/<id>[...]`
+        > - `[...]https://b23.tv/<id>[...]` |}]
+    ;;
+  end)
 ;;

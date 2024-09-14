@@ -3,4 +3,4 @@
  (inline_tests)
  (preprocess
   (pps ppx_string ppx_jane))
- (libraries core))
+ (libraries core core_unix))

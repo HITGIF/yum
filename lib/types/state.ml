@@ -1,5 +1,4 @@
 open! Core
-open Types
 
 module Guild_state = struct
   module Data = struct
