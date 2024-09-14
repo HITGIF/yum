@@ -15,6 +15,7 @@ type 'user_state init_arg =
   ; ffmpeg_path : string
   ; ffmpeg_options : string list
   ; youtubedl_path : string
+  ; media_get_path : string
   }
 
 type call_msg = |
@@ -44,6 +45,7 @@ class ['user_state] t =
       ; ffmpeg_path
       ; ffmpeg_options
       ; youtubedl_path
+      ; media_get_path
       } =
       let agent = new Agent.t in
       agent
@@ -57,6 +59,7 @@ class ['user_state] t =
              ; ffmpeg_path
              ; ffmpeg_options
              ; youtubedl_path
+             ; media_get_path
              };
       let rest = Rest.start env ~sw ~max_running:5 ~token in
       let user_state = user_init () in
@@ -94,6 +97,7 @@ let default_ffmpeg_options =
 ;;
 
 let default_youtubedl_path = "/usr/bin/youtube-dl"
+let default_media_get_path = "/usr/bin/media-get"
 
 let start
   env
@@ -103,6 +107,7 @@ let start
   ?(ffmpeg_path = default_ffmpeg_path)
   ?(ffmpeg_options = default_ffmpeg_options)
   ?(youtubedl_path = default_youtubedl_path)
+  ?(media_get_path = default_media_get_path)
   user_init
   user_handler
   =
@@ -118,6 +123,7 @@ let start
        ; ffmpeg_path
        ; ffmpeg_options
        ; youtubedl_path
+       ; media_get_path
        };
   t
 ;;

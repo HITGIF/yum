@@ -144,6 +144,13 @@ let to_url = function
   | Bilibili id -> Bilibili.to_url id
 ;;
 
+let to_src t =
+  let url = to_url t in
+  match t with
+  | Youtube _ -> `Ytdl url
+  | Bilibili _ -> `Bilibili url
+;;
+
 let%test_module "_" =
   (module struct
     let youtube_urls =

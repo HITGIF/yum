@@ -34,6 +34,7 @@ type init_arg =
   ; ffmpeg_path : string
   ; ffmpeg_options : string list
   ; youtubedl_path : string
+  ; media_get_path : string
   }
 
 type call_msg =
@@ -67,6 +68,7 @@ type state =
   ; ffmpeg_path : string
   ; ffmpeg_options : string list
   ; youtubedl_path : string
+  ; media_get_path : string
   }
 
 let spawn_youtubedl process_mgr ~sw ~stdout ~path:(executable : string) url =
@@ -90,6 +92,14 @@ let spawn_youtubedl process_mgr ~sw ~stdout ~path:(executable : string) url =
     ]
 ;;
 
+let spawn_media_get process_mgr ~sw ~temp_file ~path:(executable : string) url =
+  Eio.Process.spawn
+    ~sw
+    process_mgr
+    ~executable
+    [ executable; "-t"; "audio"; "-o"; temp_file; "-l"; "silence"; "-u"; url ]
+;;
+
 let spawn_ffmpeg process_mgr ~sw ~stdin ~stdout ~path:(executable : string) ~options =
   Eio.Process.spawn ~sw process_mgr ~stdin ~stdout ~executable (executable :: options)
 ;;
@@ -101,7 +111,14 @@ class t =
     method private init
       env
       ~sw
-      { token; intents; consumer; ffmpeg_path; ffmpeg_options; youtubedl_path } =
+      { token
+      ; intents
+      ; consumer
+      ; ffmpeg_path
+      ; ffmpeg_options
+      ; youtubedl_path
+      ; media_get_path
+      } =
       let st = State.start env ~sw in
       let gw =
         Gateway.spawn
@@ -112,7 +129,7 @@ class t =
           ~state:st
           ~consumer:(self :> Gateway.consumer)
       in
-      { st; gw; consumer; ffmpeg_path; ffmpeg_options; youtubedl_path }
+      { st; gw; consumer; ffmpeg_path; ffmpeg_options; youtubedl_path; media_get_path }
 
     method! private handle_cast env ~sw ({ st; gw; consumer; _ } as state) =
       function
@@ -137,7 +154,7 @@ class t =
            let process_mgr = Eio.Stdenv.process_mgr env in
            let play src =
              let src', sink' = Eio.Process.pipe ~sw process_mgr in
-             let _p =
+             let _ =
                spawn_ffmpeg
                  process_mgr
                  ~sw
@@ -155,7 +172,7 @@ class t =
             | `Pipe (src : Eio.Flow.source_ty Eio.Resource.t) -> play src
             | `Ytdl url ->
               let src, sink = Eio.Process.pipe ~sw process_mgr in
-              let _p1 =
+              let _ =
                 spawn_youtubedl
                   process_mgr
                   ~sw
@@ -166,7 +183,17 @@ class t =
               play src;
               Eio.Flow.close src;
               Eio.Flow.close sink
-            | `Bilibili _url -> failwith ""));
+            | `Bilibili url ->
+              let temp_file =
+                Filename.get_temp_dir_name () ^ "/yum-download-" ^ guild_id ^ ".mp3"
+              in
+              let process =
+                spawn_media_get process_mgr ~sw ~temp_file ~path:state.media_get_path url
+              in
+              Eio.Process.await_exn process;
+              let fs = Eio.Stdenv.fs env in
+              let src = Eio.Path.(open_in ~sw (fs / temp_file)) in
+              play src));
         `NoReply state
       | `ForceResumeGateway ->
         Gateway.force_resume gw;

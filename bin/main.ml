@@ -1,7 +1,7 @@
 open! Core
 open Yum
 
-let main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path =
+let main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path ~media_get_path =
   Eio_main.run
   @@ fun env ->
   Mirage_crypto_rng_eio.run (module Mirage_crypto_rng.Fortuna) env
@@ -18,6 +18,7 @@ let main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path =
            [ GUILDS; GUILD_VOICE_STATES; GUILD_MESSAGES; MESSAGE_CONTENT ])
       ?ffmpeg_path
       ?youtubedl_path
+      ?media_get_path
       (fun () -> State.init)
       (Bot.handle_event ~videos_file_path)
   in
@@ -73,7 +74,7 @@ let main_command =
          ~doc:
            [%string
              "FILE Path to the youtube-dl binary (default: \
-              %{Discord.Consumer.default_ffmpeg_path})"]
+              %{Discord.Consumer.default_youtubedl_path})"]
      and ffmpeg_path =
        optional_param
          ~arg:"-ffmpeg-path"
@@ -82,9 +83,19 @@ let main_command =
          ~doc:
            [%string
              "FILE Path to the ffmpeg binary (default: \
-              %{Discord.Consumer.default_youtubedl_path})"]
+              %{Discord.Consumer.default_ffmpeg_path})"]
+     and media_get_path =
+       optional_param
+         ~arg:"-media-get-path"
+         ~arg_type:Filename_unix.arg_type
+         ~env:"YUM_MEDIA_GET_PATH"
+         ~doc:
+           [%string
+             "FILE Path to the media-get binary (default: \
+              %{Discord.Consumer.default_media_get_path})"]
      in
-     fun () -> main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path)
+     fun () ->
+       main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path ~media_get_path)
 ;;
 
 let () =
