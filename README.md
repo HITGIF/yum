@@ -31,11 +31,11 @@ wget https://gist.githubusercontent.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c/
 ```
 
 ## Run
+### CLI
 ```sh
 ./yum -discord-bot-token [YOUR_DISCORD_BOT_TOKEN]
 ```
-### Options
-#### CLI
+#### Options
 ```
 😋 A Discord music player bot, based on discordml.
 
@@ -59,6 +59,12 @@ wget https://gist.githubusercontent.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c/
   [-help], -?                . print this help text and exit
 ```
 #### Bot
+```
+yum start
+yum play https://www.youtube.com/watch?v=PLG2Uexyi9s
+yum skip
+...
+```
 Available commands:
 ```
 [ start | s ]            : start shuffling songs
