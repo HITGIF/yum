@@ -14,12 +14,18 @@ chmod +x youtube-dl
 sudo mv youtube-dl /usr/bin # or somewhere else you prefer
 ```
 > Make sure `python` is aliased to `python3`. If not, run `sudo apt install -y python-is-python3`
-3. Download [yum](https://github.com/HITGIF/yum)
+3. Download [media-get]([https://github.com/ytdl-org/ytdl-nightly](https://github.com/foamzou/media-get)). e.g.
+```sh
+wget -O media-get https://github.com/foamzou/media-get/releases/download/v0.2.13/media-get-0.2.13-linux
+chmod +x media-get
+sudo mv media-get /usr/bin # or somewhere else you prefer
+```
+4. Download [yum](https://github.com/HITGIF/yum)
 ```sh
 wget https://github.com/HITGIF/yum/releases/latest/download/yum
 chmod +x yum
 ```
-4. Make a playlist file containing a list of YouTube video IDs, e.g. [mine](https://gist.github.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c)
+5. Make a playlist file containing a list of YouTube video IDs, e.g. [mine](https://gist.github.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c)
 ```sh
 wget https://gist.githubusercontent.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c/raw/57df953ab9ff70709825031559b1d5f1562f3ed1/videos.txt
 ```
@@ -29,6 +35,7 @@ wget https://gist.githubusercontent.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c/
 ./yum -discord-bot-token [YOUR_DISCORD_BOT_TOKEN]
 ```
 ### Options
+#### CLI
 ```
   [-discord-bot-token STRING]
                              . Discord bot token (env: YUM_DISCORD_BOT_TOKEN)
@@ -43,3 +50,19 @@ wget https://gist.githubusercontent.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c/
   [-version]                 . print the version of this build and exit
   [-help], -?                . print this help text and exit
 ```
+#### Bot
+Available commands:
+```
+[ start | s ]            : start shuffling songs
+[ stop | q ]             : stop playing all songs
+[ skip | n ]             : skip the current song
+[ play | p ] <url>       : queue a song to play next (LIFO)
+[ play! | p! ] <url>     : play a song immediately
+[ ping ]                 : ping yum for a pong
+[ help | h ]             : print this help text
+```
+> Supported `<url>` formats:
+> - `[...]https://www.youtube.com/watch?v=<id>[...]`
+> - `[...]https://youtu.be/<id>[...]`
+> - `[...]https://www.bilibili.com/video/<id>[...]`
+> - `[...]https://b23.tv/<id>[...]`
