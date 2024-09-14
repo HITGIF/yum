@@ -33,6 +33,15 @@ let find_prefix_and_chop s ~prefix =
   find_prefix_and s ~prefix ~f:(String.chop_prefix ~prefix)
 ;;
 
+let find_prefix_and_curl =
+  find_prefix_and ~f:(fun url ->
+    Core_unix.create_process ~prog:"curl" ~args:[ url ]
+    |> (fun { Core_unix.Process_info.stdout; _ } -> stdout)
+    |> Core_unix.in_channel_of_descr
+    |> In_channel.input_all
+    |> Option.return)
+;;
+
 module Youtube : S = struct
   type t = string
 
@@ -73,14 +82,6 @@ module Bilibili : S = struct
   let of_url url =
     let open Option.Let_syntax in
     let url = String.strip url in
-    let find_prefix_and_curl =
-      find_prefix_and ~f:(fun url ->
-        Core_unix.create_process ~prog:"curl" ~args:[ url ]
-        |> (fun { Core_unix.Process_info.stdout; _ } -> stdout)
-        |> Core_unix.in_channel_of_descr
-        |> In_channel.input_all
-        |> Option.return)
-    in
     find_prefix_and_chop url ~prefix:prefix_normal
     =? (fun () ->
          find_prefix_and_curl ~prefix:prefix_short url
