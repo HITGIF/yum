@@ -37,15 +37,23 @@ wget https://gist.githubusercontent.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c/
 ### Options
 #### CLI
 ```
+😋 A Discord music player bot, based on discordml.
+
+  yum 
+
+=== flags ===
+
   [-discord-bot-token STRING]
                              . Discord bot token (env: YUM_DISCORD_BOT_TOKEN)
   [-ffmpeg-path FILE]        . Path to the ffmpeg binary (default:
-                               /usr/bin/youtube-dl) (env: YUM_FFMPEG_PATH)
+                               /usr/bin/ffmpeg) (env: YUM_FFMPEG_PATH)
+  [-media-get-path FILE]     . Path to the media-get binary (default:
+                               /usr/bin/media-get) (env: YUM_MEDIA_GET_PATH)
   [-videos-file FILE]        . Path to the file containing the list of YouTube
                                video ids (default: videos.txt) (env:
                                YUM_VIDEOS_FILE)
   [-youtubedl-path FILE]     . Path to the youtube-dl binary (default:
-                               /usr/bin/ffmpeg) (env: YUM_YOUTUBEDL_PATH)
+                               /usr/bin/youtube-dl) (env: YUM_YOUTUBEDL_PATH)
   [-build-info]              . print info about this build and exit
   [-version]                 . print the version of this build and exit
   [-help], -?                . print this help text and exit
