@@ -61,13 +61,17 @@ module Youtube : S = struct
     =? (fun () -> find_prefix_and_chop url ~prefix:prefix_short)
     >>| Fn.compose List.hd_exn (String.split ~on:'?')
     >>| Fn.compose List.hd_exn (String.split ~on:'&')
+    >>| of_string
   ;;
 
   let to_url t = [%string "%{prefix_normal}%{t}"]
 end
 
 module Bilibili : S = struct
-  type t = string
+  type t =
+    { video : string
+    ; part : int option
+    }
 
   let prefix_normal = "https://www.bilibili.com/video/"
   let prefix_short = "https://b23.tv/"
@@ -77,7 +81,13 @@ module Bilibili : S = struct
     |> List.map ~f:(fun x -> [%string "[...]%{x}<id>[...]"])
   ;;
 
-  let of_string = Fn.id
+  let of_string s = { video = s; part = None }
+
+  let to_string { video; part } =
+    match part with
+    | None -> video
+    | Some part -> [%string "%{video}/?p=%{part#Int}"]
+  ;;
 
   let of_url url =
     let open Option.Let_syntax in
@@ -86,11 +96,21 @@ module Bilibili : S = struct
     =? (fun () ->
          find_prefix_and_curl ~prefix:prefix_short url
          >>= find_prefix_and_chop ~prefix:prefix_normal)
-    >>| Fn.compose List.hd_exn (String.split ~on:'/')
-    >>| Fn.compose List.hd_exn (String.split ~on:'?')
+    >>| String.split ~on:'?'
+    >>| function
+    | [] -> failwith "unreachable"
+    | [ id_with_slash ] ->
+      Fn.compose List.hd_exn (String.split ~on:'/') id_with_slash |> of_string
+    | id_with_slash :: params :: _ ->
+      let video = Fn.compose List.hd_exn (String.split ~on:'/') id_with_slash in
+      let params = String.split params ~on:'&' in
+      (match List.find params ~f:(String.is_prefix ~prefix:"p=") with
+       | None -> of_string video
+       | Some part ->
+         { video; part = String.chop_prefix ~prefix:"p=" part >>| Int.of_string })
   ;;
 
-  let to_url t = [%string "%{prefix_normal}%{t}"]
+  let to_url t = [%string "%{prefix_normal}%{to_string t}"]
 end
 
 type t = Youtube of Youtube.t [@@deriving variants]
@@ -159,7 +179,21 @@ let%test_module "_" =
          https://www.bilibili.com/video/BV1S14y1T7uj/?share_source=copy_web&vd_source=3e826ee3881d478c81bbfea52fdc92d6&t=3";
       [%expect {| https://www.bilibili.com/video/BV1S14y1T7uj |}];
       test "https://b23.tv/9XSgbpt";
-      [%expect {| https://www.bilibili.com/video/BV1wGvUeXEkr |}]
+      [%expect {| https://www.bilibili.com/video/BV1wGvUeXEkr |}];
+      test
+        "https://www.bilibili.com/video/BV1nC8CetEeS/?vd_source=9e41e603371977727f00ca56687eaa1e&p=3";
+      [%expect {| https://www.bilibili.com/video/BV1nC8CetEeS/?p=3 |}];
+      test
+        "https://www.bilibili.com/video/BV1nC8CetEeS?p=8&vd_source=9e41e603371977727f00ca56687eaa1e";
+      [%expect {| https://www.bilibili.com/video/BV1nC8CetEeS/?p=8 |}];
+      test
+        "https://www.bilibili.com/video/BV1nC8CetEeS?p=14&vd_source=9e41e603371977727f00ca56687eaa1e";
+      [%expect {| https://www.bilibili.com/video/BV1nC8CetEeS/?p=14 |}];
+      test
+        "https://www.bilibili.com/video/BV1nC8CetEeS/?p=14&vd_source=9e41e603371977727f00ca56687eaa1e";
+      [%expect {| https://www.bilibili.com/video/BV1nC8CetEeS/?p=14 |}];
+      test "https://www.bilibili.com/video/BV1nC8CetEeS/?p=7";
+      [%expect {| https://www.bilibili.com/video/BV1nC8CetEeS/?p=7 |}]
     ;;
   end)
 ;;
