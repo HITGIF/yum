@@ -83,7 +83,7 @@ let handle_event _env ~sw:_ ~videos_file_path agent rest state = function
                  play agent rest ~guild_id ~channel_id ~video_id;
                  guild_state
                | None ->
-                 send_message rest ~channel_id "Done";
+                 send_message rest ~channel_id "Done :yum:";
                  leave agent ~guild_id;
                  Idle))
          | Play video_id ->
