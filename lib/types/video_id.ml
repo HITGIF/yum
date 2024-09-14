@@ -75,9 +75,11 @@ module Bilibili : S = struct
     let url = String.strip url in
     let find_prefix_and_curl =
       find_prefix_and ~f:(fun url ->
-        let process_info = Core_unix.create_process ~prog:"curl" ~args:[ url ] in
-        let stdout = Core_unix.in_channel_of_descr process_info.stdout in
-        In_channel.input_all stdout |> Option.return)
+        Core_unix.create_process ~prog:"curl" ~args:[ url ]
+        |> (fun { Core_unix.Process_info.stdout; _ } -> stdout)
+        |> Core_unix.in_channel_of_descr
+        |> In_channel.input_all
+        |> Option.return)
     in
     find_prefix_and_chop url ~prefix:prefix_normal
     =? (fun () ->
