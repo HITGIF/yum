@@ -198,7 +198,9 @@ class t =
                 in
                 match Eio.Process.await process with
                 | `Exited code when code = 0 -> ()
-                | _status -> retry ()
+                | status ->
+                  Eio.Process.pp_status Format.err_formatter status;
+                  retry ()
               in
               retry ();
               let fs = Eio.Stdenv.fs env in
