@@ -187,10 +187,20 @@ class t =
               let temp_file =
                 Filename.get_temp_dir_name () ^ "/yum-download-" ^ guild_id ^ ".mp3"
               in
-              let process =
-                spawn_media_get process_mgr ~sw ~temp_file ~path:state.media_get_path url
+              let rec retry () =
+                let process =
+                  spawn_media_get
+                    process_mgr
+                    ~sw
+                    ~temp_file
+                    ~path:state.media_get_path
+                    url
+                in
+                match Eio.Process.await process with
+                | `Exited code when code = 0 -> ()
+                | _status -> retry ()
               in
-              Eio.Process.await_exn process;
+              retry ();
               let fs = Eio.Stdenv.fs env in
               let src = Eio.Path.(open_in ~sw (fs / temp_file)) in
               play src));
