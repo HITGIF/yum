@@ -184,28 +184,40 @@ class t =
               Eio.Flow.close src;
               Eio.Flow.close sink
             | `Bilibili url ->
-              let temp_file =
-                Filename.get_temp_dir_name () ^ "/yum-download-" ^ guild_id ^ ".mp3"
-              in
               let rec retry () =
-                let process =
-                  spawn_media_get
-                    process_mgr
-                    ~sw
-                    ~temp_file
-                    ~path:state.media_get_path
-                    url
-                in
-                match Eio.Process.await process with
-                | `Exited code when code = 0 -> ()
-                | status ->
-                  Eio.Process.pp_status Format.err_formatter status;
+                try
+                  let temp_file =
+                    Filename.get_temp_dir_name () ^ "/yum-download-" ^ guild_id ^ ".mp3"
+                  in
+                  let rec retry () =
+                    let process =
+                      spawn_media_get
+                        process_mgr
+                        ~sw
+                        ~temp_file
+                        ~path:state.media_get_path
+                        url
+                    in
+                    match Eio.Process.await process with
+                    | `Exited code when code = 0 -> ()
+                    | status ->
+                      Eio.Process.pp_status Format.err_formatter status;
+                      retry ()
+                  in
+                  retry ();
+                  let fs = Eio.Stdenv.fs env in
+                  let src = Eio.Path.(open_in ~sw (fs / temp_file)) in
+                  play src
+                with
+                | e ->
+                  Logs.err (fun m ->
+                    m
+                      "Download failed, retrying... : %s: %s"
+                      (Printexc.to_string e)
+                      (Printexc.get_backtrace ()));
                   retry ()
               in
-              retry ();
-              let fs = Eio.Stdenv.fs env in
-              let src = Eio.Path.(open_in ~sw (fs / temp_file)) in
-              play src));
+              retry ()));
         `NoReply state
       | `ForceResumeGateway ->
         Gateway.force_resume gw;
