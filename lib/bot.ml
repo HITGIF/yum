@@ -138,15 +138,16 @@ let handle_event env ~sw ~videos_file_path ~youtubedl_path agent rest state = fu
                   | _ :: _ ->
                     (match guild_state with
                      | Playing { queued_videos; _ } | Joining { queued_videos; _ } ->
-                       List.iter ids ~f:(fun id ->
-                         Deque.enqueue_front queued_videos id;
-                         send_message rest ~channel_id [%string "Queued for next: %{url}"]);
+                       List.rev ids |> List.iter ~f:(Deque.enqueue_front queued_videos);
+                       List.map ids ~f:Video_id.to_url
+                       |> String.concat ~sep:"\n"
+                       |> send_message rest ~channel_id;
                        guild_state
                      | Idle ->
                        join agent ~guild_id ~user_id:msg.author.id;
-                       List.iter ids ~f:(fun id ->
-                         let url = Video_id.to_url id in
-                         send_message rest ~channel_id [%string "Queued for next: %{url}"]);
+                       List.map ids ~f:Video_id.to_url
+                       |> String.concat ~sep:"\n"
+                       |> send_message rest ~channel_id;
                        Joining
                          { channel_id
                          ; queued_videos = Array.of_list ids |> Deque.of_array
