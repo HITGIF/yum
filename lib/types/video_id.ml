@@ -47,9 +47,10 @@ module Youtube : S = struct
 
   let prefix_normal = "https://www.youtube.com/watch?v="
   let prefix_short = "https://youtu.be/"
+  let prefix_music = "https://music.youtube.com/watch?v="
 
   let supported_url_formats =
-    [ prefix_normal; prefix_short ]
+    [ prefix_normal; prefix_short; prefix_music ]
     |> List.map ~f:(fun x -> [%string "[...]%{x}<id>[...]"])
   ;;
 
@@ -59,6 +60,7 @@ module Youtube : S = struct
     let open Option.Let_syntax in
     find_prefix_and_chop url ~prefix:prefix_normal
     =? (fun () -> find_prefix_and_chop url ~prefix:prefix_short)
+    =? (fun () -> find_prefix_and_chop url ~prefix:prefix_music)
     >>| Fn.compose List.hd_exn (String.split ~on:'?')
     >>| Fn.compose List.hd_exn (String.split ~on:'&')
     >>| of_string
@@ -156,6 +158,7 @@ let%test_module "_" =
     let youtube_urls =
       [ "https://www.youtube.com/watch?v=U7L-3VXAkSA"
       ; "https://www.youtube.com/watch?v=oXZcuHIR5ko&pp=ygUJbG92ZSAyMDAw"
+      ; "https://music.youtube.com/watch?v=FojYi2Qfi7c&si=ZiULf0fu65Ror8t8"
       ; "   https://www.youtube.com/watch?v=oXZcuHIR5ko&pp=ygUJbG92ZSAyMDAw  "
       ; " https://youtu.be/H767hjCLk5A"
       ; " https://youtu.be/EUsG3oY4Cmo?si=x6u51-6NfhX5-okB "
@@ -185,10 +188,10 @@ let%test_module "_" =
         Youtube.(url |> of_url |> Option.value_exn |> to_url |> print_endline)
       in
       List.iter youtube_urls ~f:test;
-      [%expect
-        {|
+      [%expect{|
         https://www.youtube.com/watch?v=U7L-3VXAkSA
         https://www.youtube.com/watch?v=oXZcuHIR5ko
+        https://www.youtube.com/watch?v=FojYi2Qfi7c
         https://www.youtube.com/watch?v=oXZcuHIR5ko
         https://www.youtube.com/watch?v=H767hjCLk5A
         https://www.youtube.com/watch?v=EUsG3oY4Cmo
@@ -222,6 +225,7 @@ let%test_module "_" =
         {|
         (Ok (Youtube U7L-3VXAkSA))
         (Ok (Youtube oXZcuHIR5ko))
+        (Ok (Youtube FojYi2Qfi7c))
         (Ok (Youtube oXZcuHIR5ko))
         (Ok (Youtube H767hjCLk5A))
         (Ok (Youtube EUsG3oY4Cmo))
@@ -243,6 +247,7 @@ let%test_module "_" =
          \n> Supported `<url>` formats:\
          \n> - `[...]https://www.youtube.com/watch?v=<id>[...]`\
          \n> - `[...]https://youtu.be/<id>[...]`\
+         \n> - `[...]https://music.youtube.com/watch?v=<id>[...]`\
          \n> - `[...]https://www.bilibili.com/video/<id>[...]`\
          \n> - `[...]https://b23.tv/<id>[...]`")
         (Error
@@ -251,6 +256,7 @@ let%test_module "_" =
          \n> Supported `<url>` formats:\
          \n> - `[...]https://www.youtube.com/watch?v=<id>[...]`\
          \n> - `[...]https://youtu.be/<id>[...]`\
+         \n> - `[...]https://music.youtube.com/watch?v=<id>[...]`\
          \n> - `[...]https://www.bilibili.com/video/<id>[...]`\
          \n> - `[...]https://b23.tv/<id>[...]`")
         (Error
@@ -259,6 +265,7 @@ let%test_module "_" =
          \n> Supported `<url>` formats:\
          \n> - `[...]https://www.youtube.com/watch?v=<id>[...]`\
          \n> - `[...]https://youtu.be/<id>[...]`\
+         \n> - `[...]https://music.youtube.com/watch?v=<id>[...]`\
          \n> - `[...]https://www.bilibili.com/video/<id>[...]`\
          \n> - `[...]https://b23.tv/<id>[...]`") |}]
     ;;

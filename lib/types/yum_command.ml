@@ -124,6 +124,7 @@ let%test_module "_" =
         > Supported `<url>` formats:
         > - `[...]https://www.youtube.com/watch?v=<id>[...]`
         > - `[...]https://youtu.be/<id>[...]`
+        > - `[...]https://music.youtube.com/watch?v=<id>[...]`
         > - `[...]https://www.bilibili.com/video/<id>[...]`
         > - `[...]https://b23.tv/<id>[...]` |}]
     ;;
