@@ -79,35 +79,15 @@ class ['user_state] t =
       `NoReply { state with user_state }
   end
 
-let default_ffmpeg_path = "/usr/bin/ffmpeg"
-
-let default_ffmpeg_options =
-  [ "-i"
-  ; "pipe:0"
-  ; "-ac"
-  ; "2"
-  ; "-ar"
-  ; "48000"
-  ; "-f"
-  ; "s16le"
-  ; "-loglevel"
-  ; "quiet"
-  ; "pipe:1"
-  ]
-;;
-
-let default_youtubedl_path = "/usr/bin/youtube-dl"
-let default_media_get_path = "/usr/bin/media-get"
-
 let start
   env
   ~sw
   ~token
   ~intents
-  ?(ffmpeg_path = default_ffmpeg_path)
-  ?(ffmpeg_options = default_ffmpeg_options)
-  ?(youtubedl_path = default_youtubedl_path)
-  ?(media_get_path = default_media_get_path)
+  ~ffmpeg_path
+  ~ffmpeg_options 
+  ~youtubedl_path
+  ~media_get_path
   user_init
   user_handler
   =

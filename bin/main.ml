@@ -1,7 +1,35 @@
 open! Core
 open Yum
 
-let main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path ~media_get_path =
+let default_ffmpeg_path = "/usr/bin/ffmpeg"
+
+let default_ffmpeg_options =
+  [ "-i"
+  ; "pipe:0"
+  ; "-ac"
+  ; "2"
+  ; "-ar"
+  ; "48000"
+  ; "-f"
+  ; "s16le"
+  ; "-loglevel"
+  ; "quiet"
+  ; "pipe:1"
+  ]
+;;
+
+let default_youtubedl_path = "/usr/bin/youtube-dl"
+let default_media_get_path = "/usr/bin/media-get"
+
+let main
+  ?(ffmpeg_path = default_ffmpeg_path)
+  ?(ffmpeg_options = default_ffmpeg_options)
+  ?(youtubedl_path = default_youtubedl_path)
+  ?(media_get_path = default_media_get_path)
+  ~discord_token
+  ~videos_file_path
+  ()
+  =
   Eio_main.run
   @@ fun env ->
   Mirage_crypto_rng_eio.run (module Mirage_crypto_rng.Fortuna) env
@@ -16,11 +44,12 @@ let main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path ~media_ge
       ~intents:
         (Discord.Intent.encode
            [ GUILDS; GUILD_VOICE_STATES; GUILD_MESSAGES; MESSAGE_CONTENT ])
-      ?ffmpeg_path
-      ?youtubedl_path
-      ?media_get_path
+      ~ffmpeg_path
+      ~ffmpeg_options
+      ~youtubedl_path
+      ~media_get_path
       (fun () -> State.init)
-      (Bot.handle_event ~videos_file_path)
+      (Bot.handle_event ~videos_file_path ~youtubedl_path)
   in
   ()
 ;;
@@ -73,17 +102,13 @@ let main_command =
          ~env:"YUM_YOUTUBEDL_PATH"
          ~doc:
            [%string
-             "FILE Path to the youtube-dl binary (default: \
-              %{Discord.Consumer.default_youtubedl_path})"]
+             "FILE Path to the youtube-dl binary (default: %{default_youtubedl_path})"]
      and ffmpeg_path =
        optional_param
          ~arg:"-ffmpeg-path"
          ~arg_type:Filename_unix.arg_type
          ~env:"YUM_FFMPEG_PATH"
-         ~doc:
-           [%string
-             "FILE Path to the ffmpeg binary (default: \
-              %{Discord.Consumer.default_ffmpeg_path})"]
+         ~doc:[%string "FILE Path to the ffmpeg binary (default: %{default_ffmpeg_path})"]
      and media_get_path =
        optional_param
          ~arg:"-media-get-path"
@@ -91,11 +116,16 @@ let main_command =
          ~env:"YUM_MEDIA_GET_PATH"
          ~doc:
            [%string
-             "FILE Path to the media-get binary (default: \
-              %{Discord.Consumer.default_media_get_path})"]
+             "FILE Path to the media-get binary (default: %{default_media_get_path})"]
      in
      fun () ->
-       main ~discord_token ~videos_file_path ~youtubedl_path ~ffmpeg_path ~media_get_path)
+       main
+         ?youtubedl_path
+         ?ffmpeg_path
+         ?media_get_path
+         ~discord_token
+         ~videos_file_path
+         ())
 ;;
 
 let () =

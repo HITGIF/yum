@@ -9,6 +9,7 @@ type t =
   | Help
   | Play of Video_id.t
   | Play_now of Video_id.t
+  | Play_list of Video_id.Playlist.t
 [@@deriving variants]
 
 module Command = struct
@@ -19,7 +20,7 @@ module Command = struct
     ; parse_args : string list -> t Or_error.t
     }
 
-  let command_synopsis_length = 25
+  let command_synopsis_length = 35
   let pad_synopsis = String.pad_right ~len:command_synopsis_length
 
   let help_text { names; summary; args; _ } =
@@ -38,6 +39,12 @@ let parse_no_arg command = function
 
 let parse_single_video command = function
   | [ url ] -> Video_id.of_url url >>| command
+  | [] -> too_few_args
+  | _ -> too_many_args
+;;
+
+let parse_single_playlist command = function
+  | [ url ] -> Video_id.Playlist.of_url url >>| command
   | [] -> too_few_args
   | _ -> too_many_args
 ;;
@@ -68,6 +75,11 @@ let commands : Command.t list =
     ; args = "<url>"
     ; parse_args = parse_single_video play_now
     }
+  ; { names = [ "playlist"; "pl" ]
+    ; summary = "queue all songs in the play list to play next (LIFO)"
+    ; args = "<playlist-url>"
+    ; parse_args = parse_single_playlist play_list
+    }
   ; { names = [ "ping" ]
     ; summary = "ping yum for a pong"
     ; args = ""
@@ -85,6 +97,7 @@ let help_text =
   [ "Available commands:"; "```" ]
   @ List.map commands ~f:Command.help_text
   @ [ "```"; Video_id.supported_url_formats_msg; "" ]
+  @ [ Video_id.Playlist.supported_url_formats_msg; "" ]
   |> String.concat ~sep:"\n"
 ;;
 
@@ -110,23 +123,31 @@ let%test_module "_" =
   (module struct
     let%expect_test "help text" =
       print_endline help_text;
-      [%expect {|
+      [%expect
+        {|
         Available commands:
         ```
-        [ start | s ]            : start shuffling songs
-        [ stop | q ]             : stop playing all songs
-        [ skip | n ]             : skip the current song
-        [ play | p ] <url>       : queue a song to play next (LIFO)
-        [ play! | p! ] <url>     : play a song immediately
-        [ ping ]                 : ping yum for a pong
-        [ help | h ]             : print this help text
+        [ start | s ]                      : start shuffling songs
+        [ stop | q ]                       : stop playing all songs
+        [ skip | n ]                       : skip the current song
+        [ play | p ] <url>                 : queue a song to play next (LIFO)
+        [ play! | p! ] <url>               : play a song immediately
+        [ playlist | pl ] <playlist-url>   : queue all songs in the play list to play next (LIFO)
+        [ ping ]                           : ping yum for a pong
+        [ help | h ]                       : print this help text
         ```
         > Supported `<url>` formats:
         > - `[...]https://www.youtube.com/watch?v=<id>[...]`
         > - `[...]https://youtu.be/<id>[...]`
         > - `[...]https://music.youtube.com/watch?v=<id>[...]`
         > - `[...]https://www.bilibili.com/video/<id>[...]`
-        > - `[...]https://b23.tv/<id>[...]` |}]
+        > - `[...]https://b23.tv/<id>[...]`
+
+        > Supported `<playlist-url>` formats:
+        > - `[...]https://www.youtube.com/playlist?list=<list-id>[...]`
+        > - `[...]https://music.youtube.com/playlist?list=<list-id>[...]`
+        > - `[...]https://www.youtube.com/watch?v=<video-id>&list=<list-id>[...]`
+        > - `[...]https://music.youtube.com/watch?v=<video-id>&list=<list-id>[...]` |}]
     ;;
   end)
 ;;
