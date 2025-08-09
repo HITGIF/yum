@@ -147,8 +147,8 @@ module Bilibili : S = struct
     let url = String.strip url in
     find_prefix_and_chop url ~prefix:prefix_normal
     =? (fun () ->
-         find_prefix_and_curl ~prefix:prefix_short url
-         >>= find_prefix_and_chop ~prefix:prefix_normal)
+    find_prefix_and_curl ~prefix:prefix_short url
+    >>= find_prefix_and_chop ~prefix:prefix_normal)
     >>| String.split ~on:'?'
     >>| function
     | [] -> failwith "unreachable"

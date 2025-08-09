@@ -6,9 +6,10 @@ default:
 	@echo "  build-watch (w)"
 	@echo "  test (t)"
 	@echo "  clean"
+	@echo "  format"
 
 deps:
-	opam switch create --no-install . 5.1.0 || true
+	opam switch create --no-install . 5.3.0 || true
 	opam install -y --deps-only .
 	opam install -y ocaml-lsp-server ocamlformat
 
@@ -40,3 +41,7 @@ t: test
 
 clean:
 	dune clean
+
+format:
+	find bin -type f -name *.ml -o -name *.mli | xargs ocamlformat --inplace
+	find lib -type f -name *.ml -o -name *.mli | xargs ocamlformat --inplace

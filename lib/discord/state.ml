@@ -72,7 +72,7 @@ module Voice_states = struct
                  src
                  |> List.fold_left
                       (fun m (vstate : Event.dispatch_voice_state_update) ->
-                        StringMap.add vstate.user_id vstate m)
+                         StringMap.add vstate.user_id vstate m)
                       m
                  |> Option.some
           in

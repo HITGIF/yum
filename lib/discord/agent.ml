@@ -108,7 +108,8 @@ class t =
   object (self)
     inherit [init_arg, msg, state] Actaa.Gen_server.behaviour
 
-    method private init
+    method
+      private init
       env
       ~sw
       { token
@@ -233,11 +234,11 @@ class t =
   end
 
 let join_channel
-  ?(self_mute = false)
-  ?(self_deaf = false)
-  ~guild_id
-  ~channel_id
-  (agent : t)
+      ?(self_mute = false)
+      ?(self_deaf = false)
+      ~guild_id
+      ~channel_id
+      (agent : t)
   =
   Actaa.Gen_server.cast
     agent

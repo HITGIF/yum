@@ -22,18 +22,17 @@ let default_youtubedl_path = "/usr/bin/youtube-dl"
 let default_media_get_path = "/usr/bin/media-get"
 
 let main
-  ?(ffmpeg_path = default_ffmpeg_path)
-  ?(ffmpeg_options = default_ffmpeg_options)
-  ?(youtubedl_path = default_youtubedl_path)
-  ?(media_get_path = default_media_get_path)
-  ~discord_token
-  ~videos_file_path
-  ()
+      ?(ffmpeg_path = default_ffmpeg_path)
+      ?(ffmpeg_options = default_ffmpeg_options)
+      ?(youtubedl_path = default_youtubedl_path)
+      ?(media_get_path = default_media_get_path)
+      ~discord_token
+      ~videos_file_path
+      ()
   =
+  Mirage_crypto_rng_unix.use_default ();
   Eio_main.run
   @@ fun env ->
-  Mirage_crypto_rng_eio.run (module Mirage_crypto_rng.Fortuna) env
-  @@ fun () ->
   Eio.Switch.run
   @@ fun sw ->
   let _consumer : _ Discord.Consumer.t =
@@ -131,5 +130,5 @@ let main_command =
 let () =
   Logs.set_reporter (Logs_fmt.reporter ());
   Logs.set_level (Some Logs.Info);
-  Command_unix_for_opam.run main_command
+  Command_unix.run main_command
 ;;

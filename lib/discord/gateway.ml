@@ -136,7 +136,7 @@ class t =
         state
       | Dispatch
           (VOICE_STATE_UPDATE
-            ({ guild_id = Some guild_id; user_id; session_id; channel_id; _ } as payload))
+             ({ guild_id = Some guild_id; user_id; session_id; channel_id; _ } as payload))
         ->
         let self_user_id = State.me state.st |> Option.get in
         if user_id = self_user_id.id

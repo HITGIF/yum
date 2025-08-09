@@ -35,7 +35,8 @@ class ['user_state] t =
   object (self)
     inherit ['user_state init_arg, msg, 'user_state state] Actaa.Gen_server.behaviour
 
-    method private init
+    method
+      private init
       env
       ~sw
       { token
@@ -80,16 +81,16 @@ class ['user_state] t =
   end
 
 let start
-  env
-  ~sw
-  ~token
-  ~intents
-  ~ffmpeg_path
-  ~ffmpeg_options 
-  ~youtubedl_path
-  ~media_get_path
-  user_init
-  user_handler
+      env
+      ~sw
+      ~token
+      ~intents
+      ~ffmpeg_path
+      ~ffmpeg_options
+      ~youtubedl_path
+      ~media_get_path
+      user_init
+      user_handler
   =
   let t = new t in
   t

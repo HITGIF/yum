@@ -107,9 +107,10 @@ class t =
       { state with status = Running; ws_conn = Some conn }
 
     method private start_running_if_ready env ~sw state =
-      if Option.is_some state.voice_server
-         && Option.is_some state.voice_state
-         && state.status = WaitingParameters
+      if
+        Option.is_some state.voice_server
+        && Option.is_some state.voice_state
+        && state.status = WaitingParameters
       then self#start_running env ~sw state
       else state
 

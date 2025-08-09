@@ -2,7 +2,6 @@
  (public_name yum)
  (name main)
  (libraries
-  command-unix-for-opam
   core
   core_unix.filename_unix
   core_unix.command_unix
@@ -11,7 +10,7 @@
   eio.unix
   eio_main
   logs
-  mirage-crypto-rng-eio
+  mirage-crypto-rng.unix
   yum)
  (preprocess
   (pps ppx_string ppx_jane))
