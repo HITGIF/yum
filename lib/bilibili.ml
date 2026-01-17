@@ -22,7 +22,7 @@ let validate_response ~(here : [%call_pos]) response =
 ;;
 
 let decompress string =
-  let gzipped = Filename_unix.temp_file "bilibili-html-gzipped" "" in
+  let gzipped = Filename_unix.temp_file "bilibili_html_gzipped" "" in
   let%bind () = Writer.save gzipped ~contents:string in
   let in_channel = Gzip.open_in gzipped in
   let buf_size = Byte_units.of_kilobytes 100. |> Byte_units.bytes_int_exn in
