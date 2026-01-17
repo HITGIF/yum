@@ -138,7 +138,7 @@ module Bilibili : S = struct
 
   let to_string { video; part } =
     match part with
-    | None -> video
+    | None -> [%string "%{video}/"]
     | Some part -> [%string "%{video}/?p=%{part#Int}"]
   ;;
 
@@ -345,19 +345,19 @@ module%test _ = struct
       Bilibili.(url |> of_url |> Option.value_exn |> to_url |> print_endline)
     in
     List.iter bilibili_urls ~f:test;
-    [%expect {|
-      https://www.bilibili.com/video/BV1ez421X7Gz
-      https://www.bilibili.com/video/BV1ez421X7Gz
-      https://www.bilibili.com/video/BV1ez421X7Gz
-      https://www.bilibili.com/video/BV1S14y1T7uj
-      https://www.bilibili.com/video/BV1EYrKBJEg6
+    [%expect
+      {|
+      https://www.bilibili.com/video/BV1ez421X7Gz/
+      https://www.bilibili.com/video/BV1ez421X7Gz/
+      https://www.bilibili.com/video/BV1ez421X7Gz/
+      https://www.bilibili.com/video/BV1S14y1T7uj/
+      https://www.bilibili.com/video/BV1EYrKBJEg6/
       https://www.bilibili.com/video/BV1nC8CetEeS/?p=3
       https://www.bilibili.com/video/BV1nC8CetEeS/?p=8
       https://www.bilibili.com/video/BV1nC8CetEeS/?p=14
       https://www.bilibili.com/video/BV1nC8CetEeS/?p=14
       https://www.bilibili.com/video/BV1nC8CetEeS/?p=7
       |}]
-  
   ;;
 
   let%expect_test "of_url" =

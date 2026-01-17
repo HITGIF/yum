@@ -171,16 +171,13 @@ let rec play ({ guild_id; _ } as t) =
     t.playing <- Some song;
     Bvar.broadcast t.on_song_start song;
     let%bind () =
+      let download () =
+        match Song.to_src song with
+        | `Ytdl url -> Youtube_dl.download ~prog:t.youtube_dl_path ~cancellation_token url
+        | `Bilibili url -> Bilibili.download (Uri.of_string url)
+      in
       match%bind
-        Song.to_src song
-        |> (function
-              | `Ytdl youtube -> Deferred.Or_error.return youtube
-              | `Bilibili bilibili ->
-                Todo.support_bilibili;
-                Deferred.Or_error.fail
-                  (Error.create_s
-                     [%message "Bilibili is unsupported" (bilibili : string)]))
-        >>=? Youtube_dl.download ~prog:t.youtube_dl_path ~cancellation_token
+        download ()
         >>=? Ffmpeg.encode_pcm ~prog:t.ffmpeg_path ~cancellation_token
         >>=? write_frames t ~cancellation_token
       with
@@ -193,17 +190,7 @@ let rec play ({ guild_id; _ } as t) =
           Discord.Http.Create_message.call
             ~auth_token:t.auth_token
             ~channel_id:t.message_channel
-            { content =
-                Some
-                  (Dedent.string
-                     [%string
-                       {|
-                       :fearful:
-                       ```
-                       %{error}
-                       ```
-                       |}])
-            }
+            { content = Some (Dedent.string [%string {| :fearful: ```%{error}``` |}]) }
           |> Deferred.ignore_m
         in
         [%log.error
