@@ -131,9 +131,24 @@ let handle_command ~state ~gateway ~guild_id ~message_channel ~user_id command =
        Player.play_now player song;
        Player.start_once player |> ignore;
        return ())
-  | Play_list _ ->
-    Todo.support_playlist;
-    send_message message_channel "Playing list not yet supported :pleading_face:"
+  | Play_list playlist ->
+    (match Song.Playlist.to_src playlist with
+     | `Ytdl_playlist url ->
+       (match%bind Youtube_dl.get_playlist url with
+        | Error error ->
+          let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
+          send_message message_channel [%string ":fearful: ```%{error}```"]
+        | Ok songs ->
+          (match%bind
+             player_or_join_user ~state ~gateway ~guild_id ~message_channel ~user_id
+           with
+           | None -> return ()
+           | Some player ->
+             Player.queue_all player songs;
+             Player.start_once player |> ignore;
+             send_message
+               message_channel
+               [%string "Queued %{List.length songs#Int} songs :yum:"])))
 ;;
 
 let handle_events ~state ~gateway event =

@@ -4,7 +4,7 @@ open! Common
 
 let default_prog = File_path.Absolute.of_string "/usr/bin/youtube-dl"
 
-let default_args =
+let default_download_args =
   [ "--quiet"; "--no-warnings"; "--no-progress"; "--no-continue" ]
   @ List.concat
       [ [ "--format"; "bestaudio" ]
@@ -17,7 +17,22 @@ let default_args =
       ]
 ;;
 
-let download ?cancellation_token ?(prog = default_prog) ?(args = default_args) url =
+let default_get_playlist_args = [ "--get-id"; "--flat-playlist" ]
+
+let download
+  ?cancellation_token
+  ?(prog = default_prog)
+  ?(args = default_download_args)
+  url
+  =
   let args = args @ [ url ] in
   Stream_process.stream ?cancellation_token ~prog ~args ()
+;;
+
+let get_playlist ?(prog = default_prog) ?(args = default_get_playlist_args) url =
+  let args = args @ [ url ] in
+  let%map.Deferred.Or_error songs =
+    Process.run ~prog:(File_path.Absolute.to_string prog) ~args ()
+  in
+  String.split_lines songs |> List.map ~f:Song.of_youtube_string
 ;;

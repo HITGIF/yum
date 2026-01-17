@@ -190,7 +190,7 @@ let rec play ({ guild_id; _ } as t) =
           Discord.Http.Create_message.call
             ~auth_token:t.auth_token
             ~channel_id:t.message_channel
-            { content = Some (Dedent.string [%string {| :fearful: ```%{error}``` |}]) }
+            { content = Some [%string ":fearful: ```%{error}```"] }
           |> Deferred.ignore_m
         in
         [%log.error
