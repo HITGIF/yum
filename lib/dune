@@ -2,4 +2,4 @@
  (name yum)
  (preprocess
   (pps ppx_jane ppx_with))
- (libraries async breadcrumb core discord dedent))
+ (libraries async core discord dedent todo))
