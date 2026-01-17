@@ -36,6 +36,7 @@ let decompress string =
     Or_error.try_with (fun () -> read []) |> Or_error.tag ~tag:"Error decompressing HTML"
   in
   Gzip.close_in in_channel;
+  Core_unix.remove gzipped;
   return output
 ;;
 
