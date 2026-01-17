@@ -1,6 +1,6 @@
 # Yum 😋
 
-A [Discord](https://discord.com/) music player bot, based on [discordml](https://github.com/ushitora-anqou/discordml).
+A [Discord](https://discord.com/) music player bot.
 
 ## Install (Debian)
 1. Install [ffmpeg](https://ffmpeg.org/)
@@ -33,31 +33,30 @@ wget https://gist.githubusercontent.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c/
 ## Run
 ### CLI
 ```sh
-./yum -discord-bot-token [YOUR_DISCORD_BOT_TOKEN]
+./yum -discord-bot-token YOUR_DISCORD_BOT_TOKEN -youtube-songs YOUR_SONGS_FILE
 ```
 #### Options
 ```
-😋 A Discord music player bot, based on discordml.
+😋 A Discord music player bot.
 
-  yum 
+  yum
 
 === flags ===
 
-  [-discord-bot-token STRING]
-                             . Discord bot token (env: YUM_DISCORD_BOT_TOKEN)
-  [-ffmpeg-path FILE]        . Path to the ffmpeg binary (default:
-                               /usr/bin/ffmpeg) (env: YUM_FFMPEG_PATH)
-  [-media-get-path FILE]     . Path to the media-get binary (default:
-                               /usr/bin/media-get) (env: YUM_MEDIA_GET_PATH)
-  [-videos-file FILE]        . Path to the file containing the list of YouTube
-                               video ids (default: videos.txt) (env:
-                               YUM_VIDEOS_FILE)
-  [-youtubedl-path FILE]     . Path to the youtube-dl binary (default:
-                               /usr/bin/youtube-dl) (env: YUM_YOUTUBEDL_PATH)
+  -discord-bot-token STRING  . Discord bot auth token
+  -youtube-songs FILE        . Youtube songs file
+  [-ffmpeg-path PATH]        . Path to the ffmpeg binary (default:
+                               /usr/bin/ffmpeg)
+  [-log-level LEVEL]         . The log level (can be: Debug, Error, Info)
+  [-media-get-path PATH]     . Path to the media-get binary (default:
+                               /usr/bin/media-get)
+  [-youtube-dl-path PATH]    . Path to the youtube-dl binary (default:
+                               /usr/bin/youtube-dl)
   [-build-info]              . print info about this build and exit
   [-version]                 . print the version of this build and exit
   [-help], -?                . print this help text and exit
 ```
+
 #### Bot
 ```
 yum start
@@ -65,18 +64,4 @@ yum play https://www.youtube.com/watch?v=PLG2Uexyi9s
 yum skip
 ...
 ```
-Available commands:
-```
-[ start | s ]            : start shuffling songs
-[ stop | q ]             : stop playing all songs
-[ skip | n ]             : skip the current song
-[ play | p ] <url>       : queue a song to play next (LIFO)
-[ play! | p! ] <url>     : play a song immediately
-[ ping ]                 : ping yum for a pong
-[ help | h ]             : print this help text
-```
-> Supported `<url>` formats:
-> - `[...]https://www.youtube.com/watch?v=<id>[...]`
-> - `[...]https://youtu.be/<id>[...]`
-> - `[...]https://www.bilibili.com/video/<id>[...]`
-> - `[...]https://b23.tv/<id>[...]`
+See `yum help` for available commands.
