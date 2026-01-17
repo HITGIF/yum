@@ -153,7 +153,9 @@ let send_identify t =
        ; server_id = t.guild_id
        ; session_id = t.session_id
        ; user_id = t.user_id
-       ; max_dave_protocol_version = 0 (* CR-someday: DAVE support *)
+       ; max_dave_protocol_version =
+           (Breadcrumb.support_dave_protocol;
+            0)
        })
 ;;
 

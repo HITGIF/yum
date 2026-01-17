@@ -178,6 +178,7 @@ let rec play ({ guild_id; _ } as t) =
         |> (function
               | `Ytdl youtube -> Deferred.Or_error.return youtube
               | `Bilibili bilibili ->
+                Breadcrumb.support_bilibili;
                 Deferred.Or_error.fail
                   (Error.create_s
                      [%message "Bilibili is unsupported" (bilibili : string)]))

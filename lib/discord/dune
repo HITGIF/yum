@@ -9,6 +9,7 @@
   async
   async_udp
   audio
+  breadcrumb
   core
   common
   cohttp_async_websocket

@@ -135,6 +135,7 @@ let handle_command ~state ~gateway ~guild_id ~message_channel ~user_id command =
        Player.start_once player |> ignore;
        return ())
   | Play_list _ ->
+    Breadcrumb.support_playlist;
     send_message message_channel "Playing list not yet supported :pleading_face:"
 ;;
 

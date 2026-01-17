@@ -1,0 +1,5 @@
+(library
+ (name breadcrumb)
+ (preprocess
+  (pps ppx_jane))
+ (libraries core))
