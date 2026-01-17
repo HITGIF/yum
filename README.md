@@ -21,9 +21,9 @@ chmod +x youtube-dl
 sudo mv youtube-dl /usr/bin # or somewhere else you prefer
 ```
 > Make sure `python` is aliased to `python3`. If not, run `sudo apt install -y python-is-python3`
-3. Download [media-get]([https://github.com/ytdl-org/ytdl-nightly](https://github.com/foamzou/media-get)). e.g.
+3. Download [media-get](https://github.com/foamzou/media-get). e.g.
 ```sh
-wget -O media-get https://github.com/foamzou/media-get/releases/download/v0.2.13/media-get-0.2.13-linux
+wget -O media-get https://github.com/foamzou/media-get/releases/download//v0.2.14/media-get-0.2.14-linux
 chmod +x media-get
 sudo mv media-get /usr/bin # or somewhere else you prefer
 ```
