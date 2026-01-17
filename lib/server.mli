@@ -6,6 +6,5 @@ val run
   -> youtube_songs:Filename.t
   -> ffmpeg_path:File_path.Absolute.t
   -> youtube_dl_path:File_path.Absolute.t
-  -> media_get_path:File_path.Absolute.t
   -> unit
   -> unit Deferred.Or_error.t

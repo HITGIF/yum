@@ -7,7 +7,6 @@ val create
   :  auth_token:Discord.Model.Auth_token.t
   -> ffmpeg_path:File_path.Absolute.t
   -> youtube_dl_path:File_path.Absolute.t
-  -> media_get_path:File_path.Absolute.t
   -> guild_id:Discord.Model.Guild_id.t
   -> voice_channel:Discord.Model.Channel_id.t
   -> message_channel:Discord.Model.Channel_id.t

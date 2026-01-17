@@ -63,7 +63,6 @@ type t =
   { auth_token : Auth_token.t
   ; ffmpeg_path : File_path.Absolute.t
   ; youtube_dl_path : File_path.Absolute.t
-  ; media_get_path : File_path.Absolute.t
   ; guild_id : Guild_id.t
   ; mutable voice_channel : Channel_id.t
   ; mutable message_channel : Channel_id.t
@@ -86,7 +85,6 @@ let close
   { auth_token = _
   ; ffmpeg_path = _
   ; youtube_dl_path = _
-  ; media_get_path = _
   ; guild_id
   ; voice_channel = _
   ; message_channel = _
@@ -257,7 +255,6 @@ let create
   ~auth_token
   ~ffmpeg_path
   ~youtube_dl_path
-  ~media_get_path
   ~guild_id
   ~voice_channel
   ~message_channel
@@ -274,7 +271,6 @@ let create
   { auth_token
   ; ffmpeg_path
   ; youtube_dl_path
-  ; media_get_path
   ; guild_id
   ; voice_channel
   ; message_channel

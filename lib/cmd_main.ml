@@ -26,20 +26,7 @@ let command =
          File_path.Absolute.to_string
          ~default:Youtube_dl.default_prog
          ~doc:"PATH Path to the youtube-dl binary"
-     and media_get_path =
-       flag_optional_with_default_doc_string
-         [%var_dash_name]
-         File_path.Absolute.arg_type
-         File_path.Absolute.to_string
-         ~default:Media_get.default_prog
-         ~doc:"PATH Path to the media-get binary"
      in
      fun () ->
-       Server.run
-         ~discord_bot_token
-         ~youtube_songs
-         ~ffmpeg_path
-         ~youtube_dl_path
-         ~media_get_path
-         ())
+       Server.run ~discord_bot_token ~youtube_songs ~ffmpeg_path ~youtube_dl_path ())
 ;;
