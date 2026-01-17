@@ -6,7 +6,8 @@ A [Discord](https://discord.com/) music player bot.
 1. `sudo apt install opam`
 2. `opam update --all`
 3. `make deps-linux`
-4. `make build`
+4. `make install`
+5. `make build`
 
 ## Install (Ubuntu 24.04+)
 1. Install [ffmpeg](https://ffmpeg.org/)

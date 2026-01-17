@@ -24,7 +24,7 @@ val create
   -> t
 
 val connect : t -> unit Deferred.Or_error.t
-val disconnect : t -> unit Deferred.t
+val close : t -> unit Deferred.t
 val events : t -> Event.t Pipe.Reader.t
 val session_id : t -> Model.Voice_gateway_session_id.t
 val token : t -> Model.Voice_connection_token.t

@@ -419,8 +419,8 @@ and update_voice_gateway t ~guild_id ~force_reconnect =
         `Should_be_connected (~channel_id, ~session_id, ~token, ~endpoint)
     in
     let disconnect voice_gateway =
-      [%log.info [%here] "Disconnecting voice gateway" (guild_id : Model.Guild_id.t)];
-      let%bind () = Voice_gateway.disconnect voice_gateway in
+      [%log.info [%here] "Closing voice gateway" (guild_id : Model.Guild_id.t)];
+      let%bind () = Voice_gateway.close voice_gateway in
       Hashtbl.remove voice_gateways guild_id;
       return ()
     in

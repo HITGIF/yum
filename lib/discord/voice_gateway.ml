@@ -193,10 +193,15 @@ let close_voice_udp t =
   | _ -> return ()
 ;;
 
-let reincarnate t =
-  [%log.info [%here] "Reincarnating..." ~guild_id:(t.guild_id : Model.Guild_id.t)];
+let close t =
   let%bind () = close_voice_udp t in
   let%bind () = disconnect t in
+  return ()
+;;
+
+let reincarnate t =
+  [%log.info [%here] "Reincarnating..." ~guild_id:(t.guild_id : Model.Guild_id.t)];
+  let%bind () = close t in
   t.reincarnate ()
 ;;
 
