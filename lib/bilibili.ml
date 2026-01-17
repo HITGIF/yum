@@ -13,7 +13,7 @@ let headers =
 let validate_response ~(here : [%call_pos]) response =
   match Cohttp.Response.status response with
   | `OK -> Deferred.Or_error.ok_unit
-  | _ as status_code ->
+  | status_code ->
     Deferred.Or_error.error_s
       [%message
         "Unexpected HTTP response code"
