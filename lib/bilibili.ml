@@ -1,6 +1,5 @@
 open! Core
 open! Async
-open! Ppx_yojson_conv_lib.Yojson_conv.Primitives
 
 let headers =
   Cohttp.Header.of_list
@@ -61,6 +60,8 @@ let audio_resource_regex =
 ;;
 
 module Audio_resource = struct
+  open Ppx_yojson_conv_lib.Yojson_conv.Primitives
+
   type audio =
     { base_url : string
     ; backup_url : string list
