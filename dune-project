@@ -20,6 +20,7 @@
   async
   async_ssl
   async_udp
+  camlzip
   core
   core_unix
   cohttp-async

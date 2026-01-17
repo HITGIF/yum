@@ -1,4 +1,4 @@
 open! Core
 open! Async
 
-val download : url:string -> Reader.t Deferred.Or_error.t
+val download : Uri.t -> Reader.t Deferred.Or_error.t
