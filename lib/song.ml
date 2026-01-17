@@ -314,7 +314,7 @@ module%test _ = struct
        https://www.bilibili.com/video/BV1ez421X7Gz/?share_source=copy_web&vd_source=3e826ee3881d478c81bbfea52fdc92d6"
     ; "【【异世界情绪】CH4NGE【Candy Live2】】 【精准空降到 00:03】 \
        https://www.bilibili.com/video/BV1S14y1T7uj/?share_source=copy_web&vd_source=3e826ee3881d478c81bbfea52fdc92d6&t=3"
-    ; "https://b23.tv/9XSgbpt"
+    ; "https://b23.tv/XKKTj83"
     ; "https://www.bilibili.com/video/BV1nC8CetEeS/?vd_source=9e41e603371977727f00ca56687eaa1e&p=3"
     ; "https://www.bilibili.com/video/BV1nC8CetEeS?p=8&vd_source=9e41e603371977727f00ca56687eaa1e"
     ; "https://www.bilibili.com/video/BV1nC8CetEeS?p=14&vd_source=9e41e603371977727f00ca56687eaa1e"
@@ -345,18 +345,19 @@ module%test _ = struct
       Bilibili.(url |> of_url |> Option.value_exn |> to_url |> print_endline)
     in
     List.iter bilibili_urls ~f:test;
-    [%expect
-      {|
-        https://www.bilibili.com/video/BV1ez421X7Gz
-        https://www.bilibili.com/video/BV1ez421X7Gz
-        https://www.bilibili.com/video/BV1ez421X7Gz
-        https://www.bilibili.com/video/BV1S14y1T7uj
-        https://www.bilibili.com/video/BV1wGvUeXEkr
-        https://www.bilibili.com/video/BV1nC8CetEeS/?p=3
-        https://www.bilibili.com/video/BV1nC8CetEeS/?p=8
-        https://www.bilibili.com/video/BV1nC8CetEeS/?p=14
-        https://www.bilibili.com/video/BV1nC8CetEeS/?p=14
-        https://www.bilibili.com/video/BV1nC8CetEeS/?p=7 |}]
+    [%expect {|
+      https://www.bilibili.com/video/BV1ez421X7Gz
+      https://www.bilibili.com/video/BV1ez421X7Gz
+      https://www.bilibili.com/video/BV1ez421X7Gz
+      https://www.bilibili.com/video/BV1S14y1T7uj
+      https://www.bilibili.com/video/BV1EYrKBJEg6
+      https://www.bilibili.com/video/BV1nC8CetEeS/?p=3
+      https://www.bilibili.com/video/BV1nC8CetEeS/?p=8
+      https://www.bilibili.com/video/BV1nC8CetEeS/?p=14
+      https://www.bilibili.com/video/BV1nC8CetEeS/?p=14
+      https://www.bilibili.com/video/BV1nC8CetEeS/?p=7
+      |}]
+  
   ;;
 
   let%expect_test "of_url" =
@@ -364,50 +365,51 @@ module%test _ = struct
     youtube_urls @ bilibili_urls @ [ ""; "aaa"; "kaln  klsjlkaj " ] |> List.iter ~f:test;
     [%expect
       {|
-        (Ok (Youtube U7L-3VXAkSA))
-        (Ok (Youtube oXZcuHIR5ko))
-        (Ok (Youtube FojYi2Qfi7c))
-        (Ok (Youtube oXZcuHIR5ko))
-        (Ok (Youtube H767hjCLk5A))
-        (Ok (Youtube EUsG3oY4Cmo))
-        (Ok (Youtube qzoq8cpp6qI))
-        (Ok (Youtube qzoq8cpp6qI))
-        (Ok (Bilibili ((video BV1ez421X7Gz) (part ()))))
-        (Ok (Bilibili ((video BV1ez421X7Gz) (part ()))))
-        (Ok (Bilibili ((video BV1ez421X7Gz) (part ()))))
-        (Ok (Bilibili ((video BV1S14y1T7uj) (part ()))))
-        (Ok (Bilibili ((video BV1wGvUeXEkr) (part ()))))
-        (Ok (Bilibili ((video BV1nC8CetEeS) (part (3)))))
-        (Ok (Bilibili ((video BV1nC8CetEeS) (part (8)))))
-        (Ok (Bilibili ((video BV1nC8CetEeS) (part (14)))))
-        (Ok (Bilibili ((video BV1nC8CetEeS) (part (14)))))
-        (Ok (Bilibili ((video BV1nC8CetEeS) (part (7)))))
-        (Error
-          "URL format is not supported.\
-         \n\
-         \n> Supported `<url>` formats:\
-         \n> - `[...]https://www.youtube.com/watch?v=<id>[...]`\
-         \n> - `[...]https://youtu.be/<id>[...]`\
-         \n> - `[...]https://music.youtube.com/watch?v=<id>[...]`\
-         \n> - `[...]https://www.bilibili.com/video/<id>[...]`\
-         \n> - `[...]https://b23.tv/<id>[...]`")
-        (Error
-          "URL format is not supported.\
-         \n\
-         \n> Supported `<url>` formats:\
-         \n> - `[...]https://www.youtube.com/watch?v=<id>[...]`\
-         \n> - `[...]https://youtu.be/<id>[...]`\
-         \n> - `[...]https://music.youtube.com/watch?v=<id>[...]`\
-         \n> - `[...]https://www.bilibili.com/video/<id>[...]`\
-         \n> - `[...]https://b23.tv/<id>[...]`")
-        (Error
-          "URL format is not supported.\
-         \n\
-         \n> Supported `<url>` formats:\
-         \n> - `[...]https://www.youtube.com/watch?v=<id>[...]`\
-         \n> - `[...]https://youtu.be/<id>[...]`\
-         \n> - `[...]https://music.youtube.com/watch?v=<id>[...]`\
-         \n> - `[...]https://www.bilibili.com/video/<id>[...]`\
-         \n> - `[...]https://b23.tv/<id>[...]`") |}]
+      (Ok (Youtube U7L-3VXAkSA))
+      (Ok (Youtube oXZcuHIR5ko))
+      (Ok (Youtube FojYi2Qfi7c))
+      (Ok (Youtube oXZcuHIR5ko))
+      (Ok (Youtube H767hjCLk5A))
+      (Ok (Youtube EUsG3oY4Cmo))
+      (Ok (Youtube qzoq8cpp6qI))
+      (Ok (Youtube qzoq8cpp6qI))
+      (Ok (Bilibili ((video BV1ez421X7Gz) (part ()))))
+      (Ok (Bilibili ((video BV1ez421X7Gz) (part ()))))
+      (Ok (Bilibili ((video BV1ez421X7Gz) (part ()))))
+      (Ok (Bilibili ((video BV1S14y1T7uj) (part ()))))
+      (Ok (Bilibili ((video BV1EYrKBJEg6) (part ()))))
+      (Ok (Bilibili ((video BV1nC8CetEeS) (part (3)))))
+      (Ok (Bilibili ((video BV1nC8CetEeS) (part (8)))))
+      (Ok (Bilibili ((video BV1nC8CetEeS) (part (14)))))
+      (Ok (Bilibili ((video BV1nC8CetEeS) (part (14)))))
+      (Ok (Bilibili ((video BV1nC8CetEeS) (part (7)))))
+      (Error
+        "URL format is not supported.\
+       \n\
+       \n> Supported `<url>` formats:\
+       \n> - `[...]https://www.youtube.com/watch?v=<id>[...]`\
+       \n> - `[...]https://youtu.be/<id>[...]`\
+       \n> - `[...]https://music.youtube.com/watch?v=<id>[...]`\
+       \n> - `[...]https://www.bilibili.com/video/<id>[...]`\
+       \n> - `[...]https://b23.tv/<id>[...]`")
+      (Error
+        "URL format is not supported.\
+       \n\
+       \n> Supported `<url>` formats:\
+       \n> - `[...]https://www.youtube.com/watch?v=<id>[...]`\
+       \n> - `[...]https://youtu.be/<id>[...]`\
+       \n> - `[...]https://music.youtube.com/watch?v=<id>[...]`\
+       \n> - `[...]https://www.bilibili.com/video/<id>[...]`\
+       \n> - `[...]https://b23.tv/<id>[...]`")
+      (Error
+        "URL format is not supported.\
+       \n\
+       \n> Supported `<url>` formats:\
+       \n> - `[...]https://www.youtube.com/watch?v=<id>[...]`\
+       \n> - `[...]https://youtu.be/<id>[...]`\
+       \n> - `[...]https://music.youtube.com/watch?v=<id>[...]`\
+       \n> - `[...]https://www.bilibili.com/video/<id>[...]`\
+       \n> - `[...]https://b23.tv/<id>[...]`")
+      |}]
   ;;
 end

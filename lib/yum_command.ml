@@ -124,28 +124,29 @@ module%test _ = struct
     print_endline help_text;
     [%expect
       {|
-        Available commands:
-        ```
-        [ start | s ]                      : start shuffling songs
-        [ stop | q ]                       : stop playing all songs
-        [ skip | n ]                       : skip the current song
-        [ play | p ] <url>                 : queue a song to play next (LIFO)
-        [ play! | p! ] <url>               : play a song immediately
-        [ playlist | pl ] <playlist-url>   : queue all songs in the play list to play next (LIFO)
-        [ ping ]                           : ping yum for a pong
-        [ help | h ]                       : print this help text
-        ```
-        > Supported `<url>` formats:
-        > - `[...]https://www.youtube.com/watch?v=<id>[...]`
-        > - `[...]https://youtu.be/<id>[...]`
-        > - `[...]https://music.youtube.com/watch?v=<id>[...]`
-        > - `[...]https://www.bilibili.com/video/<id>[...]`
-        > - `[...]https://b23.tv/<id>[...]`
+      Available commands:
+      ```
+      [ start | s ]                      : start shuffling songs
+      [ stop | q ]                       : stop playing all songs
+      [ skip | n ]                       : skip the current song
+      [ play | p ] <url>                 : queue a song to play next (FIFO)
+      [ play! | p! ] <url>               : play a song immediately, skipping the current
+      [ playlist | pl ] <playlist-url>   : queue all songs in the play list to play next (FIFO)
+      [ ping ]                           : ping yum for a pong
+      [ help | h ]                       : print this help text
+      ```
+      > Supported `<url>` formats:
+      > - `[...]https://www.youtube.com/watch?v=<id>[...]`
+      > - `[...]https://youtu.be/<id>[...]`
+      > - `[...]https://music.youtube.com/watch?v=<id>[...]`
+      > - `[...]https://www.bilibili.com/video/<id>[...]`
+      > - `[...]https://b23.tv/<id>[...]`
 
-        > Supported `<playlist-url>` formats:
-        > - `[...]https://www.youtube.com/playlist?list=<list-id>[...]`
-        > - `[...]https://music.youtube.com/playlist?list=<list-id>[...]`
-        > - `[...]https://www.youtube.com/watch?v=<video-id>&list=<list-id>[...]`
-        > - `[...]https://music.youtube.com/watch?v=<video-id>&list=<list-id>[...]` |}]
+      > Supported `<playlist-url>` formats:
+      > - `[...]https://www.youtube.com/playlist?list=<list-id>[...]`
+      > - `[...]https://music.youtube.com/playlist?list=<list-id>[...]`
+      > - `[...]https://www.youtube.com/watch?v=<video-id>&list=<list-id>[...]`
+      > - `[...]https://music.youtube.com/watch?v=<video-id>&list=<list-id>[...]`
+      |}]
   ;;
 end

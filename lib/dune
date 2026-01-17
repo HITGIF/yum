@@ -1,5 +1,8 @@
 (library
  (name yum)
+ (inline_tests
+  (executable
+   (link_flags :standard -cclib -lopus)))
  (preprocess
   (pps ppx_jane ppx_with))
  (libraries async core discord dedent todo))
