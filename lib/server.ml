@@ -39,9 +39,10 @@ module State = struct
     Hashtbl.remove t.players guild_id
   ;;
 
-  let set_player t ~guild_id ~channel_id ~frames_writer =
+  let set_player ?message_channel t ~guild_id ~voice_channel ~frames_writer =
     Hashtbl.update_and_return t.players guild_id ~f:(function
       | None ->
+        let message_channel = Option.value message_channel ~default:voice_channel in
         let player =
           Player.create
             ~auth_token:t.auth_token
@@ -49,13 +50,15 @@ module State = struct
             ~youtube_dl_path:t.youtube_dl_path
             ~media_get_path:t.media_get_path
             ~guild_id
-            ~channel_id
+            ~voice_channel
+            ~message_channel
             ~default_songs:t.default_songs
             ~frames_writer
         in
         player
       | Some player ->
-        Player.set_channel_id player channel_id;
+        Option.iter message_channel ~f:(Player.set_message_channel player);
+        Player.set_voice_channel player voice_channel;
         Player.set_frames_writer player frames_writer;
         player)
   ;;
@@ -71,8 +74,10 @@ end
 
 let join_user_voice ~state ~gateway ~guild_id ~message_channel ~user_id =
   match%bind Discord.Gateway.join_user_voice gateway ~guild_id ~user_id with
-  | `Ok channel_id ->
-    State.set_player state ~guild_id ~channel_id ~frames_writer:None |> Some |> return
+  | `Ok voice_channel ->
+    State.set_player state ~guild_id ~voice_channel ~message_channel ~frames_writer:None
+    |> Some
+    |> return
   | `User_not_in_voice_channel ->
     let%bind () =
       State.send_message state message_channel "Join a voice channel first :thinking:"
@@ -82,7 +87,9 @@ let join_user_voice ~state ~gateway ~guild_id ~message_channel ~user_id =
 
 let player_or_join_user ~state ~gateway ~guild_id ~message_channel ~user_id =
   match State.player state ~guild_id with
-  | Some player -> Some player |> return
+  | Some player ->
+    Player.set_message_channel player message_channel;
+    Some player |> return
   | None -> join_user_voice ~state ~gateway ~guild_id ~message_channel ~user_id
 ;;
 
@@ -102,8 +109,12 @@ let handle_command ~state ~gateway ~guild_id ~message_channel ~user_id command =
     State.close_player state ~guild_id;
     Discord.Gateway.leave_voice gateway ~guild_id
   | Skip ->
-    State.player state ~guild_id |> Option.iter ~f:Player.skip;
-    return ()
+    (match State.player state ~guild_id with
+     | None -> return ()
+     | Some player ->
+       Player.set_message_channel player message_channel;
+       Player.skip player;
+       return ())
   | Play song ->
     (match%bind
        player_or_join_user ~state ~gateway ~guild_id ~message_channel ~user_id
@@ -131,7 +142,11 @@ let handle_events ~state ~gateway event =
   match (event : Discord.Gateway.Event.t) with
   | Voice_connected { guild_id = _ } -> return ()
   | Voice { guild_id; event = Voice_ready { channel_id; frames_writer } } ->
-    State.set_player state ~guild_id ~channel_id ~frames_writer:(Some frames_writer)
+    State.set_player
+      state
+      ~guild_id
+      ~voice_channel:channel_id
+      ~frames_writer:(Some frames_writer)
     |> ignore;
     return ()
   | Message

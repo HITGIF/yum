@@ -65,7 +65,8 @@ type t =
   ; youtube_dl_path : File_path.Absolute.t
   ; media_get_path : File_path.Absolute.t
   ; guild_id : Guild_id.t
-  ; mutable channel_id : Channel_id.t
+  ; mutable voice_channel : Channel_id.t
+  ; mutable message_channel : Channel_id.t
   ; mutable frames_writer : Audio.Pcm_frame.t Queue.t Pipe.Writer.t option
   ; mutable playing : Song.t option
   ; songs : Songs.t
@@ -87,7 +88,8 @@ let close
   ; youtube_dl_path = _
   ; media_get_path = _
   ; guild_id
-  ; channel_id = _
+  ; voice_channel = _
+  ; message_channel = _
   ; frames_writer
   ; playing = _
   ; songs = _
@@ -104,7 +106,8 @@ let close
   Option.iter frames_writer ~f:Pipe.close
 ;;
 
-let set_channel_id t channel_id = t.channel_id <- channel_id
+let set_voice_channel t channel_id = t.voice_channel <- channel_id
+let set_message_channel t channel_id = t.message_channel <- channel_id
 
 let set_frames_writer t frames_writer =
   let old_frames_writer = t.frames_writer in
@@ -163,7 +166,7 @@ let rec play ({ guild_id; _ } as t) =
       let url = Song.to_url song in
       Discord.Http.Create_message.call
         ~auth_token:t.auth_token
-        ~channel_id:t.channel_id
+        ~channel_id:t.message_channel
         { content = Some [%string ":yum: %{url}"] }
       |> Deferred.ignore_m
     in
@@ -190,7 +193,7 @@ let rec play ({ guild_id; _ } as t) =
           let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
           Discord.Http.Create_message.call
             ~auth_token:t.auth_token
-            ~channel_id:t.channel_id
+            ~channel_id:t.message_channel
             { content =
                 Some
                   (Dedent.string
@@ -255,7 +258,8 @@ let create
   ~youtube_dl_path
   ~media_get_path
   ~guild_id
-  ~channel_id
+  ~voice_channel
+  ~message_channel
   ~default_songs
   ~frames_writer
   =
@@ -271,7 +275,8 @@ let create
   ; youtube_dl_path
   ; media_get_path
   ; guild_id
-  ; channel_id
+  ; voice_channel
+  ; message_channel
   ; frames_writer
   ; playing = None
   ; songs

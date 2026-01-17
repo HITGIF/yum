@@ -9,14 +9,16 @@ val create
   -> youtube_dl_path:File_path.Absolute.t
   -> media_get_path:File_path.Absolute.t
   -> guild_id:Discord.Model.Guild_id.t
-  -> channel_id:Discord.Model.Channel_id.t
+  -> voice_channel:Discord.Model.Channel_id.t
+  -> message_channel:Discord.Model.Channel_id.t
   -> default_songs:Song.t Nonempty_list.t
   -> frames_writer:Audio.Pcm_frame.t Queue.t Pipe.Writer.t option
   -> t
 
 val start_once : t -> [ `Ok | `Already_started ]
 val close : t -> unit
-val set_channel_id : t -> Discord.Model.Channel_id.t -> unit
+val set_voice_channel : t -> Discord.Model.Channel_id.t -> unit
+val set_message_channel : t -> Discord.Model.Channel_id.t -> unit
 val set_frames_writer : t -> Audio.Pcm_frame.t Queue.t Pipe.Writer.t option -> unit
 
 (*_ *)
