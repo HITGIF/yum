@@ -71,7 +71,15 @@ module Audio_resource = struct
 end
 
 let parse_audio_url html =
-  let group = Re.exec (force audio_resource_regex) html in
+  let%bind.Deferred.Or_error group =
+    Or_error.try_with (fun () -> Re.exec (force audio_resource_regex) html)
+    |> Or_error.tag_s_lazy
+         ~tag:
+           [%lazy_message
+             "Error matching audio resource regex in html"
+               ~html_truncated:(String.prefix html 500)]
+    |> return
+  in
   let%bind.Deferred.Or_error audio_resource =
     match Re.Group.get_opt group 1 with
     | None ->
