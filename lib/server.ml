@@ -96,7 +96,7 @@ let handle_command ~state ~gateway ~guild_id ~message_channel ~user_id command =
      | None -> return ()
      | Some player ->
        (match Player.start_once player with
-        | `Ok -> send_message message_channel "Started :yum:"
+        | `Ok -> return ()
         | `Already_started -> send_message message_channel "Rejoined :yum:"))
   | Stop ->
     State.close_player state ~guild_id;
