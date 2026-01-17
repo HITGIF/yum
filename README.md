@@ -2,7 +2,7 @@
 
 A [Discord](https://discord.com/) music player bot.
 
-## Install (Debian)
+## Install (Ubuntu 24.04+)
 1. Install [ffmpeg](https://ffmpeg.org/)
 ```sh
 sudo apt install -y ffmpeg
@@ -65,3 +65,9 @@ yum skip
 ...
 ```
 See `yum help` for available commands.
+
+## Build (Ubuntu 24.04+)
+1. `sudo apt install opam`
+2. `opam update --all`
+3. `make deps-linux`
+4. `make build`

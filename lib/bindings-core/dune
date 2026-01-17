@@ -1,0 +1,6 @@
+(library
+ (name bindings_core)
+ (inline_tests)
+ (preprocess
+  (pps ppx_jane))
+ (libraries core ctypes.stubs ctypes))

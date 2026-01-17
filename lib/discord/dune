@@ -1,0 +1,16 @@
+(library
+ (name discord)
+ (inline_tests
+  (executable
+   (link_flags :standard -cclib -lopus)))
+ (preprocess
+  (pps ppx_jane ppx_with ppx_yojson_conv ppx_quick_test))
+ (libraries
+  async
+  async_udp
+  audio
+  core
+  common
+  cohttp_async_websocket
+  sodium
+  yojson))

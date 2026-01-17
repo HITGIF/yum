@@ -1,0 +1,6 @@
+(executables
+ (modes byte exe)
+ (names sodium_gen)
+ (preprocess
+  (pps ppx_jane))
+ (libraries sodium_bindings ctypes ctypes.stubs))

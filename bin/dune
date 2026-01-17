@@ -1,0 +1,5 @@
+(executable
+ (public_name yum)
+ (name main)
+ (libraries yum memtrace)
+ (flags :standard -cclib -lopus))

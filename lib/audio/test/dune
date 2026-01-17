@@ -1,0 +1,8 @@
+(library
+ (name audio_test)
+ (inline_tests
+  (executable
+   (link_flags :standard -cclib -lopus)))
+ (preprocess
+  (pps ppx_jane ppx_with ppx_expect))
+ (libraries core expect_test_helpers_core audio))

@@ -1,0 +1,71 @@
+open! Core
+module Intable_extended = Common.Intable_extended
+module Json = Common.Json
+module Seq_num = Intable_extended.Make ()
+
+module type S = sig
+  module Op_code : sig
+    type t [@@deriving equal]
+  end
+
+  module Event : sig
+    type t [@@deriving yojson, sexp_of]
+
+    val create : ?data:Json.t -> ?name:string -> Op_code.t -> t
+    val op_code : t -> Op_code.t
+    val data : t -> Json.t option
+    val seq_num : t -> Seq_num.t option
+    val name : t -> string option
+    val data_or_error : t -> Json.t Or_error.t
+    val seq_num_or_error : t -> Seq_num.t Or_error.t
+    val name_or_error : t -> string Or_error.t
+  end
+end
+
+module Op_code = struct
+  module Gateway = struct
+    (** https://discord.com/developers/docs/topics/opcodes-and-status-codes#gateway-gateway-opcodes *)
+    type t =
+      | Dispatch
+      | Heartbeat
+      | Identify
+      | Presence_update
+      | Voice_state_update
+      | Resume
+      | Reconnect
+      | Request_guild_members
+      | Invalid_session
+      | Hello
+      | Heartbeat_ack
+      | Request_soundboard_sounds
+      | Unknown of int
+    [@@deriving equal]
+  end
+
+  module Voice_gateway = struct
+    (** https://discord.com/developers/docs/topics/opcodes-and-status-codes#voice-voice-opcodes *)
+    type t =
+      | Identify
+      | Select_protocol
+      | Ready
+      | Heartbeat
+      | Session_description
+      | Speaking
+      | Heartbeat_ack
+      | Resume
+      | Hello
+      | Resumed
+      | Clients_connect
+      | Client_disconnect
+      | Unknown of int
+    [@@deriving equal]
+  end
+end
+
+module type Websocket_protocol = sig
+  module type S = S
+
+  module Seq_num : Intable_extended.S with type t = Seq_num.t
+  module Gateway : S with type Op_code.t = Op_code.Gateway.t
+  module Voice_gateway : S with type Op_code.t = Op_code.Voice_gateway.t
+end

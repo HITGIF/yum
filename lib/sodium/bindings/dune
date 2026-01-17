@@ -1,0 +1,6 @@
+(library
+ (name sodium_bindings)
+ (preprocess
+  (pps ppx_jane))
+ (libraries ctypes ctypes.stubs)
+ (virtual_deps conf-libsodium))

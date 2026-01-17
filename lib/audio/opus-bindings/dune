@@ -1,0 +1,6 @@
+(library
+ (name opus_bindings)
+ (preprocess
+  (pps ppx_jane))
+ (libraries ctypes ctypes-foreign)
+ (virtual_deps conf-libopus))

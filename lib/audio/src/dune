@@ -1,0 +1,5 @@
+(library
+ (name audio)
+ (preprocess
+  (pps ppx_jane))
+ (libraries async core bindings_core opus_bindings ctypes))
