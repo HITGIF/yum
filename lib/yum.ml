@@ -1,2 +1,1 @@
-include Types
-module Bot = Bot
+module Cmd_main = Cmd_main

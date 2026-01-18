@@ -1,0 +1,5 @@
+(library
+ (name common)
+ (preprocess
+  (pps ppx_jane ppx_with ppx_yojson_conv ppx_quick_test))
+ (libraries async core file_path yojson))

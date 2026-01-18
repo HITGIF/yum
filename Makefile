@@ -1,7 +1,10 @@
+.PHONY: deps-linux deps-macos install i build b build-watch w test t clean format
+
 default:
 	@echo "Available targets:"
 	@echo "  deps-linux"
 	@echo "  deps-macos"
+	@echo "  install (i)"
 	@echo "  build (b)"
 	@echo "  build-watch (w)"
 	@echo "  test (t)"
@@ -9,7 +12,7 @@ default:
 	@echo "  format"
 
 deps:
-	opam switch create --no-install . 5.3.0 || true
+	opam switch create --no-install --repos ox=git+https://github.com/oxcaml/opam-repository.git,default . 5.2.0+ox || true
 	opam install -y --deps-only .
 	opam install -y ocaml-lsp-server ocamlformat
 
@@ -20,11 +23,16 @@ deps-macos: deps
 	brew install opus
 	ln -s /opt/homebrew/lib/libopus.dylib /usr/local/lib || true
 
+install:
+	opam install -y --deps-only .
+
+i: install
+
 build:
 	rm -f yum
-	dune build
-	cp _build/default/bin/main.exe yum
-	chmod +x yum
+	dune build --release
+	cp _build/install/default/bin/yum yum
+	chmod +wx yum
 
 b: build
 

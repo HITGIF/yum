@@ -1,40 +1,17 @@
 (library
  (name discord)
+ (inline_tests
+  (executable
+   (link_flags :standard -cclib -lopus)))
  (preprocess
-  (pps
-   ppx_deriving.make
-   ppx_deriving.show
-   ppx_deriving.enum
-   ppx_yojson_conv
-   ppx_string
-   ppx_jane))
+  (pps ppx_jane ppx_with ppx_yojson_conv ppx_quick_test))
  (libraries
-  actaa
-  astring
-  base64
-  cohttp
-  cohttp-eio
+  async
+  async_udp
+  audio
   core
-  cstruct
-  ctypes
-  ctypes-foreign
-  domain-name
-  eio
-  eio.core
-  eio.unix
-  ipaddr
-  logs
-  logs.fmt
-  mirage-crypto-rng
-  mirage-clock-unix
-  ocplib-endian
-  ptime
+  common
+  cohttp_async_websocket
   sodium
-  tls
-  tls-eio
-  unix
-  uri
-  websocket
-  x509
-  yojson)
- (flags :standard -cclib -lopus))
+  todo
+  yojson))

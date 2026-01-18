@@ -1,5 +1,8 @@
 (library
  (name yum)
+ (inline_tests
+  (executable
+   (link_flags :standard -cclib -lopus)))
  (preprocess
-  (pps ppx_string ppx_jane))
- (libraries core discord types))
+  (pps ppx_jane ppx_with ppx_yojson_conv))
+ (libraries async camlzip core discord dedent todo))

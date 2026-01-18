@@ -1,17 +1,5 @@
 (executable
  (public_name yum)
  (name main)
- (libraries
-  core
-  core_unix.filename_unix
-  core_unix.command_unix
-  eio
-  eio.core
-  eio.unix
-  eio_main
-  logs
-  mirage-crypto-rng.unix
-  yum)
- (preprocess
-  (pps ppx_string ppx_jane))
+ (libraries yum memtrace)
  (flags :standard -cclib -lopus))

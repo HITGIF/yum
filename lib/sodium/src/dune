@@ -1,0 +1,19 @@
+(library
+ (name sodium)
+ (preprocess
+  (pps ppx_jane))
+ (libraries core bindings_core sodium_bindings ctypes.stubs ctypes)
+ (foreign_stubs
+  (language c)
+  (names sodium_stubs)
+  (flags
+   (:standard \ -Werror -pedantic -Wall -Wunused)
+   -w))
+ (c_library_flags :standard -lsodium))
+
+(rule
+ (targets sodium_generated.ml sodium_stubs.c)
+ (deps
+  (:first_dep ../gen/sodium_gen.exe))
+ (action
+  (bash ./%{first_dep})))

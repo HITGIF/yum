@@ -1,0 +1,6 @@
+(library
+ (name sodium_test)
+ (inline_tests)
+ (preprocess
+  (pps ppx_jane ppx_with ppx_expect))
+ (libraries core expect_test_helpers_core sodium))

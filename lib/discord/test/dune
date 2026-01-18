@@ -1,0 +1,8 @@
+(library
+ (name discord_test)
+ (inline_tests
+  (executable
+   (link_flags :standard -cclib -lopus)))
+ (preprocess
+  (pps ppx_jane ppx_with ppx_yojson_conv ppx_expect))
+ (libraries async core common discord yojson expect_test_helpers_core))
