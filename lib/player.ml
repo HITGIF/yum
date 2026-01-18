@@ -121,34 +121,32 @@ let write_frames t frames_reader ~cancellation_token =
   in
   let buf_reader, buf_writer = Pipe.create ~size_budget:Int.max_value () in
   let done_buffering = Pipe.transfer frames_reader buf_writer ~f:Fn.id in
-  let%bind () = Deferred.any_unit [ done_buffering; cancellation_token ] in
-  Pipe.close buf_writer;
-  if Deferred.is_determined cancellation_token
-  then Deferred.Or_error.ok_unit
-  else (
-    let rec send_next_batch () =
-      match%bind Pipe.read_exactly buf_reader ~num_values:batch_size with
-      | `Eof -> return ()
-      | `Exactly batch | `Fewer batch ->
-        let rec try_write () =
-          match t.frames_writer with
-          | None ->
+  don't_wait_for
+    (let%map () = Deferred.any_unit [ done_buffering; cancellation_token ] in
+     Pipe.close buf_writer);
+  let rec send_next_batch () =
+    match%bind Pipe.read_exactly buf_reader ~num_values:batch_size with
+    | `Eof -> return ()
+    | `Exactly batch | `Fewer batch ->
+      let rec try_write () =
+        match t.frames_writer with
+        | None ->
+          let%bind () = Bvar.wait t.on_new_frames_writer in
+          try_write ()
+        | Some frames_writer ->
+          if not (Pipe.is_closed frames_writer)
+          then Pipe.write frames_writer batch
+          else (
             let%bind () = Bvar.wait t.on_new_frames_writer in
-            try_write ()
-          | Some frames_writer ->
-            if not (Pipe.is_closed frames_writer)
-            then Pipe.write frames_writer batch
-            else (
-              let%bind () = Bvar.wait t.on_new_frames_writer in
-              try_write ())
-        in
-        let%bind () = try_write () in
-        send_next_batch ()
-    in
-    let done_transfering = send_next_batch () in
-    let%bind () = Deferred.any_unit [ done_transfering; cancellation_token ] in
-    Pipe.close_read buf_reader;
-    Deferred.Or_error.ok_unit)
+            try_write ())
+      in
+      let%bind () = try_write () in
+      send_next_batch ()
+  in
+  let done_transfering = send_next_batch () in
+  let%bind () = Deferred.any_unit [ done_transfering; cancellation_token ] in
+  Pipe.close_read buf_reader;
+  Deferred.Or_error.ok_unit
 ;;
 
 let rec play ({ guild_id; _ } as t) =
