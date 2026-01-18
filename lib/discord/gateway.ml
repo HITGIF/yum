@@ -650,12 +650,14 @@ and handle_new_connection ~disconnected:{ State.Disconnected.connected } t state
          (info : Info.t option)];
      match reason with
      | Normal_closure ->
-       let%bind (_ : State.Disconnected.t) = disconnect t in
-       return ()
+       (match message with
+        | "Pipe was closed" -> return ()
+        | _ -> resume t)
      | Unknown ((4004 | 4010 | 4011 | 4012 | 4013 | 4014) as errno) ->
        (* Should not reconnect. *)
        (* https://discord.com/developers/docs/topics/opcodes-and-status-codes#gateway-gateway-close-event-codes *)
        [%log.error [%here] "Not resuming" (errno : int)];
+       let%bind (_ : State.Disconnected.t) = disconnect t in
        return ()
      | _ -> resume t)
 
