@@ -12,6 +12,7 @@ val sample_rate : int
 (** a.k.a. frame size *)
 val samples_per_frame : int
 
+val frame_length : Byte_units.t
 val ffmpeg_format : string
 
 (*_ *)

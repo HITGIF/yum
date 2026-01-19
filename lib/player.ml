@@ -119,10 +119,14 @@ let write_frames t frames_reader ~cancellation_token =
     (* 60ms *)
     3
   in
-  let buf_reader, buf_writer = Pipe.create ~size_budget:Int.max_value () in
+  let buffer_size =
+    Byte_units.(of_megabytes 64. // Audio.Pcm_frame.frame_length) |> Float.to_int
+  in
+  let buf_reader, buf_writer = Pipe.create ~size_budget:buffer_size () in
   let done_buffering = Pipe.transfer frames_reader buf_writer ~f:Fn.id in
   don't_wait_for
     (let%map () = Deferred.any_unit [ done_buffering; cancellation_token ] in
+     Pipe.close_read frames_reader;
      Pipe.close buf_writer);
   let rec send_next_batch () =
     match%bind Pipe.read_exactly buf_reader ~num_values:batch_size with
