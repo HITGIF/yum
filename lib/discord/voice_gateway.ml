@@ -415,7 +415,10 @@ and handle_new_connection t state ws =
          (message : string)
          (info : Info.t option)];
      match reason with
-     | Normal_closure -> disconnect t
+     | Normal_closure ->
+       (match message with
+        | "Pipe was closed" -> return ()
+        | _ -> resume t)
      | Unknown ((4014 | 4021 | 4022) as errno) ->
        (* Should not reconnect. *)
        (* https://discord.com/developers/docs/topics/opcodes-and-status-codes#voice-voice-close-event-codes *)
