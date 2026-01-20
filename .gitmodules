@@ -1,3 +1,0 @@
-[submodule "lib/dave/dave_c/libdave/vcpkg"]
-	path = lib/dave/dave_c/libdave/vcpkg
-	url = https://github.com/microsoft/vcpkg.git
