@@ -714,7 +714,14 @@ and restart t =
   let%bind (_ : State.Disconnected.t) = disconnect t in
   match%bind connect t with
   | Ok () -> return ()
-  | Error error -> Error.raise_s [%message [%here] "Unable to restart" (error : Error.t)]
+  | Error error ->
+    let retry_after = Time_ns.Span.of_int_sec 10 in
+    [%log.error
+      [%here]
+        [%string "Unable to restart, retrying in %{retry_after#Time_ns.Span}..."]
+        (error : Error.t)];
+    let%bind () = Time_source.after t.time_source retry_after in
+    restart t
 ;;
 
 let reconnect_voice t ~guild_id =
