@@ -11,6 +11,19 @@ module C (F : Cstubs.FOREIGN) = struct
     type t = unit ptr
 
     let t : t typ = ptr void
+    let destroy = foreign "daveKeyRatchetDestroy" (t @-> returning void)
+  end
+
+  module Commit_result = struct
+    type t = unit ptr
+
+    let t : t typ = ptr void
+  end
+
+  module Welcome_result = struct
+    type t = unit ptr
+
+    let t : t typ = ptr void
   end
 
   module Session = struct
@@ -91,7 +104,10 @@ module C (F : Cstubs.FOREIGN) = struct
     let process_commit =
       foreign
         "daveSessionProcessCommit"
-        (t @-> ptr (const uint8_t) (* commit *) @-> size_t (* length *) @-> returning void)
+        (t
+         @-> ptr (const uint8_t) (* commit *)
+         @-> size_t (* length *)
+         @-> returning Commit_result.t)
     ;;
 
     let process_welcome =
@@ -102,7 +118,7 @@ module C (F : Cstubs.FOREIGN) = struct
          @-> size_t (* length *)
          @-> ptr ocaml_bytes (* recognizedUserIds *)
          @-> size_t (* recognizedUserIdsLength *)
-         @-> returning void)
+         @-> returning Welcome_result.t)
     ;;
 
     let get_marshalled_key_package =
