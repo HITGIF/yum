@@ -1,0 +1,8 @@
+(library
+ (name dave_test)
+ (inline_tests
+  (executable
+   (link_flags :standard -cclib -ldave)))
+ (preprocess
+  (pps ppx_jane ppx_with ppx_expect))
+ (libraries core expect_test_helpers_core dave))
