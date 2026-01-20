@@ -427,7 +427,7 @@ DAVE_EXPORT DAVEEncryptorHandle daveEncryptorCreate(void);
 DAVE_EXPORT void daveEncryptorDestroy(DAVEEncryptorHandle encryptor);
 
 /**
- * @brief Sets the key ratchet for encryption 
+ * @brief Sets the key ratchet for encryption
  * @param encryptor Encryptor handle
  * @param keyRatchet Key ratchet to use for encryption (does *not* take ownership)
  */
