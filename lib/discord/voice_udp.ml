@@ -245,10 +245,8 @@ let frames_writer t ~secret_key =
           song_start := Some sending_end;
           Time_ns.Span.zero
         | Some song_start ->
-          let speedup = 1.01 in
           let expected_elapsed =
-            Time_ns.Span.(
-              scale_int Audio.Pcm_frame.frame_duration !song_sent_frames / speedup)
+            Time_ns.Span.(scale_int Audio.Pcm_frame.frame_duration !song_sent_frames)
           in
           let actual_elapsed = Time_ns.diff sending_end song_start in
           Time_ns.Span.O.(actual_elapsed - expected_elapsed)
