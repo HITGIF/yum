@@ -57,10 +57,7 @@ type t =
   ; socket : (([ `Bound ], Socket.Address.Inet.t) Socket.t[@sexp.opaque])
   ; dest : Socket.Address.Inet.t
   ; sendto :
-      (Fd.t
-       -> (read, Iobuf.seek, Iobuf.global) Iobuf.t
-       -> Socket.Address.Inet.t
-       -> unit Deferred.t
+      (Fd.t -> (read, Iobuf.seek, Iobuf.global) Iobuf.t -> Socket.Address.Inet.t -> unit
       [@sexp.opaque])
   ; send_speaking :
       (Model.Voice_gateway.Event.Speaking.t -> unit Deferred.t[@sexp.opaque])
@@ -75,7 +72,8 @@ type t =
 let create ~ssrc ~ip ~port ~encryption_modes ~send_speaking =
   Sodium.init () |> ok_exn;
   let%bind.Deferred.Or_error encryption = Encryption.create encryption_modes |> return in
-  let%bind.Deferred.Or_error sendto = Async_udp.sendto () |> return in
+  let%bind.Deferred.Or_error sendto = Async_udp.sendto_sync () |> return in
+  let sendto fd iobuf addr = sendto fd iobuf addr |> Unix.Syscall_result.Unit.ok_exn in
   let socket = Socket.Address.Inet.create_bind_any ~port:0 |> Async_udp.bind in
   [%log.debug
     [%here]
@@ -141,7 +139,7 @@ let discover_ip t =
   in
   [%log.debug
     [%here] "Sending IP discovery request" ~dest:(t.dest : Socket.Address.Inet.t)];
-  let%bind () = t.sendto (Socket.fd t.socket) request t.dest in
+  t.sendto (Socket.fd t.socket) request t.dest;
   [%log.debug [%here] "Sent IP discovery request" ~dest:(t.dest : Socket.Address.Inet.t)];
   Ivar.read ret
 ;;
@@ -171,7 +169,7 @@ let send_frame t frame ~secret_key =
 
 let send_five_silent_frames =
   let frames = Array.create ~len:5 Audio.Opus.Frame.silence in
-  fun send_frame -> Deferred.Array.iter frames ~how:`Sequential ~f:send_frame
+  fun send_frame -> Array.iter frames ~f:send_frame
 ;;
 
 let send_speaking t is_speaking =
@@ -217,7 +215,7 @@ let frames_writer t ~secret_key =
       | None ->
         song_start := None;
         song_sent_frames := 0;
-        let%bind () = set_speaking false in
+        let%map () = set_speaking false in
         send_five_silent_frames send_frame
       | Some (_ : Audio.Pcm_frame.t Queue.t) -> return ()
     in
@@ -236,26 +234,26 @@ let frames_writer t ~secret_key =
           Audio.Opus.Encoder.encode t.opus_encoder pcm |> ok_exn)
       in
       let%bind () = set_speaking true in
-      let%bind () = Deferred.Queue.iter opus_frames ~how:`Sequential ~f:send_frame in
-      let sending_end = Time_ns.now () in
-      let song_elapsed_diff =
+      let%bind () =
         match !song_start with
-        | None ->
-          song_start := Some sending_end;
-          Time_ns.Span.zero
+        | None -> return ()
         | Some song_start ->
           let expected_elapsed =
             Time_ns.Span.(scale_int Audio.Pcm_frame.frame_duration !song_sent_frames)
           in
-          let actual_elapsed = Time_ns.diff sending_end song_start in
-          Time_ns.Span.O.(actual_elapsed - expected_elapsed)
+          let actual_elapsed = Time_ns.diff (Time_ns.now ()) song_start in
+          let song_elapsed_diff =
+            Time_ns.Span.(max zero (actual_elapsed - expected_elapsed))
+          in
+          Clock_ns.after
+            Time_ns.Span.(
+              scale_int Audio.Pcm_frame.frame_duration num_frames - song_elapsed_diff)
       in
+      Queue.iter opus_frames ~f:send_frame;
+      (match !song_start with
+       | Some _ -> ()
+       | None -> song_start := Some (Time_ns.now ()));
       song_sent_frames := !song_sent_frames + num_frames;
-      let%bind () =
-        Clock_ns.after
-          Time_ns.Span.(
-            scale_int Audio.Pcm_frame.frame_duration num_frames - song_elapsed_diff)
-      in
       send ()
   in
   don't_wait_for (send ());
