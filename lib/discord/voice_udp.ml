@@ -1,7 +1,6 @@
 open! Core
 open! Async
-module Intable_extended = Common.Intable_extended
-module Json = Common.Json
+open! Common
 
 module Encryption = struct
   type t = [ `Aead_xchacha20_poly1305_rtpsize ] [@@deriving enumerate, sexp_of]
