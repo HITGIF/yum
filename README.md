@@ -2,10 +2,17 @@
 
 A [Discord](https://discord.com/) music player bot.
 
-## Build (Ubuntu 24.04+)
+## Build 
+### Ubuntu 24.04+
 1. `sudo apt install opam`
 2. `opam update --all`
 3. `make deps-linux`
+4. `make install`
+5. `make build`
+### MacOS
+1. `brew install opam`
+2. `opam update --all`
+3. `make deps-macos`
 4. `make install`
 5. `make build`
 
