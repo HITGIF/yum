@@ -18,12 +18,54 @@ module C (F : Cstubs.FOREIGN) = struct
     type t = unit ptr
 
     let t : t typ = ptr void
+    let destroy = foreign "daveCommitResultDestroy" (t @-> returning void)
+    let is_failed = foreign "daveCommitResultIsFailed" (t @-> returning bool)
+    let is_ignored = foreign "daveCommitResultIsIgnored" (t @-> returning bool)
+
+    let get_roster_member_ids =
+      foreign
+        "daveCommitResultGetRosterMemberIds"
+        (t
+         @-> ptr (ptr uint64_t) (* rosterIds *)
+         @-> ptr size_t (* rosterIdsLength *)
+         @-> returning void)
+    ;;
+
+    let get_roster_member_signature =
+      foreign
+        "daveCommitResultGetRosterMemberSignature"
+        (t
+         @-> uint64_t (* rosterId *)
+         @-> ptr (ptr uint8_t) (* signature *)
+         @-> ptr size_t (* signatureLength *)
+         @-> returning void)
+    ;;
   end
 
   module Welcome_result = struct
     type t = unit ptr
 
     let t : t typ = ptr void
+    let destroy = foreign "daveWelcomeResultDestroy" (t @-> returning void)
+
+    let get_roster_member_ids =
+      foreign
+        "daveWelcomeResultGetRosterMemberIds"
+        (t
+         @-> ptr (ptr uint64_t) (* rosterIds *)
+         @-> ptr size_t (* rosterIdsLength *)
+         @-> returning void)
+    ;;
+
+    let get_roster_member_signature =
+      foreign
+        "daveWelcomeResultGetRosterMemberSignature"
+        (t
+         @-> uint64_t (* rosterId *)
+         @-> ptr (ptr uint8_t) (* signature *)
+         @-> ptr size_t (* signatureLength *)
+         @-> returning void)
+    ;;
   end
 
   module Session = struct
@@ -151,5 +193,13 @@ module C (F : Cstubs.FOREIGN) = struct
          @-> ptr void (* userData *)
          @-> returning void)
     ;;
+  end
+
+  module Encryptor = struct
+    type t = unit ptr
+
+    let t : t typ = ptr void
+    let create = foreign "daveEncryptorCreate" (void @-> returning t)
+    let destroy = foreign "daveEncryptorDestroy" (t @-> returning void)
   end
 end
