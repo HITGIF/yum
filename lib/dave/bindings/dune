@@ -2,4 +2,4 @@
  (name dave_bindings)
  (preprocess
   (pps ppx_jane))
- (libraries ctypes ctypes.stubs))
+ (libraries core ctypes ctypes.stubs))
