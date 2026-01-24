@@ -331,9 +331,9 @@ module C (F : Cstubs.FOREIGN) = struct
         (t
          @-> Media_type.t
          @-> uint32_t (* ssrc *)
-         @-> ptr uint8_t (* frame *)
+         @-> ocaml_bytes (* frame *)
          @-> size_t (* frameLength *)
-         @-> ptr uint8_t (* encryptedFrame *)
+         @-> ocaml_bytes (* encryptedFrame *)
          @-> size_t (* encryptedFrameCapacity *)
          @-> ptr size_t (* bytesWritten *)
          @-> returning Encryptor_result_code.t)
@@ -379,9 +379,9 @@ module C (F : Cstubs.FOREIGN) = struct
         "daveDecryptorDecrypt"
         (t
          @-> Media_type.t
-         @-> ptr uint8_t (* encryptedFrame *)
-         @-> size_t (* encryptedFrameCapacity *)
-         @-> ptr uint8_t (* frame *)
+         @-> ocaml_bytes (* encryptedFrame *)
+         @-> size_t (* encryptedFrameLength *)
+         @-> ocaml_bytes (* frame *)
          @-> size_t (* frameCapacity *)
          @-> ptr size_t (* bytesWritten *)
          @-> returning Decryptor_result_code.t)

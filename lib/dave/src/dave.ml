@@ -56,6 +56,13 @@ module String_data = struct
   let of_list strings = List.map strings ~f:ocaml_string_start |> of_list
 end
 
+module Codec = Binding.Codec
+module Media_type = Binding.Media_type
+module Encryptor_result_code = Binding.Encryptor_result_code
+module Decryptor_result_code = Binding.Decryptor_result_code
+module Encryptor_stats = Binding.Encryptor_stats
+module Decryptor_stats = Binding.Decryptor_stats
+
 module Commit_result = struct
   open! Binding.Commit_result
 
@@ -151,4 +158,94 @@ module Encryptor = struct
   open! Binding.Encryptor
 
   type nonrec t = t
+
+  let create = create
+  let destroy = destroy
+  let set_key_ratchet = set_key_ratchet
+  let set_passthrough_mode = set_passthrough_mode
+  let assign_ssrc_to_codec t ~ssrc ~codec = assign_ssrc_to_codec t (to_u32 ssrc) codec
+  let get_protocol_version t = get_protocol_version t |> of_u16
+  let has_key_ratchet = has_key_ratchet
+  let is_passthrough_mode = is_passthrough_mode
+
+  let get_max_ciphertext_byte_size t ~media_type ~frame_size =
+    get_max_ciphertext_byte_size t media_type (to_size_t frame_size) |> of_size_t
+  ;;
+
+  let encrypt t ~media_type ~ssrc ~frame =
+    let frame_bytes = Bytes.of_string frame in
+    let frame_len = Bytes.length frame_bytes in
+    let capacity = get_max_ciphertext_byte_size t ~media_type ~frame_size:frame_len in
+    let encrypted_frame = Bytes.create capacity in
+    let bytes_written = allocate size_t (to_size_t 0) in
+    let result =
+      encrypt
+        t
+        media_type
+        (to_u32 ssrc)
+        !!frame_bytes
+        (to_size_t frame_len)
+        !!encrypted_frame
+        (to_size_t capacity)
+        bytes_written
+    in
+    let output =
+      Bytes.to_string (Bytes.subo encrypted_frame ~len:(of_size_t !@bytes_written))
+    in
+    result, output
+  ;;
+
+  let set_protocol_version_changed_callback t ~callback =
+    let callback _user_data = callback () in
+    set_protocol_version_changes_callback t callback null
+  ;;
+
+  let get_stats t ~media_type =
+    let stats = allocate_n Binding.Encryptor_stats.t ~count:1 in
+    get_stats t media_type stats;
+    !@stats
+  ;;
+end
+
+module Decryptor = struct
+  open! Binding.Decryptor
+
+  type nonrec t = t
+
+  let create = create
+  let destroy = destroy
+  let transition_to_key_ratchet = transition_to_key_ratchet
+  let set_passthrough_mode = set_passthrough_mode
+
+  let get_max_plaintext_byte_size t ~media_type ~encrypted_frame_size =
+    get_max_plaintext_byte_size t media_type (to_size_t encrypted_frame_size) |> of_size_t
+  ;;
+
+  let decrypt t ~media_type ~encrypted_frame =
+    let encrypted_bytes = Bytes.of_string encrypted_frame in
+    let encrypted_len = Bytes.length encrypted_bytes in
+    let capacity =
+      get_max_plaintext_byte_size t ~media_type ~encrypted_frame_size:encrypted_len
+    in
+    let frame = Bytes.create capacity in
+    let bytes_written = allocate size_t (to_size_t 0) in
+    let result =
+      decrypt
+        t
+        media_type
+        !!encrypted_bytes
+        (to_size_t encrypted_len)
+        !!frame
+        (to_size_t capacity)
+        bytes_written
+    in
+    let output = Bytes.to_string (Bytes.subo frame ~len:(of_size_t !@bytes_written)) in
+    result, output
+  ;;
+
+  let get_stats t ~media_type =
+    let stats = allocate_n Binding.Decryptor_stats.t ~count:1 in
+    get_stats t media_type stats;
+    !@stats
+  ;;
 end
