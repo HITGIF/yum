@@ -35,7 +35,7 @@ module State = struct
       ; mutable last_heartbeat_acked : bool
       ; heartbeating : unit Set_once.t
       ; created_at : Time_ns.t
-      ; ws : (string Websocket.t[@sexp.opaque])
+      ; ws : (Websocket.Frame_content.t Websocket.t[@sexp.opaque])
       }
     [@@deriving sexp_of]
 
@@ -69,6 +69,7 @@ type t =
   ; reincarnate : unit -> unit Deferred.t
   ; events_reader : Event.t Pipe.Reader.t
   ; events_writer : Event.t Pipe.Writer.t
+  ; dave_session : Dave_session.t
   }
 [@@deriving fields ~getters]
 
@@ -89,6 +90,11 @@ let create
     | Some time_source -> Time_source.read_only time_source
   in
   let events_reader, events_writer = Pipe.create () in
+  let dave_session =
+    Dave_session.create
+      ~self_user_id:(Model.User_id.to_string user_id)
+      ~group_id:(Model.Channel_id.to_string channel_id |> Int.of_string)
+  in
   { state = Disconnected
   ; time_source
   ; token
@@ -100,11 +106,52 @@ let create
   ; reincarnate
   ; events_reader
   ; events_writer
+  ; dave_session
   }
 ;;
 
 let events t = t.events_reader
 let emit t event = Pipe.write_without_pushback_if_open t.events_writer event
+
+(* Serialize event to Frame_content.t with appropriate opcode.
+   Binary MLS messages (opcodes 26, 28) use Binary frames.
+   All other (JSON) messages use Text frames. *)
+let serialize_event event : Websocket.Frame_content.t =
+  match event with
+  | Model.Voice_gateway.Event.Sendable.Mls_key_package { key_package } ->
+    (* Binary opcode 26: dave_mls_key_package *)
+    let payload = Base64.decode_exn key_package in
+    let buf = Bytes.create (1 + String.length payload) in
+    Bytes.set buf 0 (Char.of_int_exn 26);
+    Bytes.From_string.blit
+      ~src:payload
+      ~src_pos:0
+      ~dst:buf
+      ~dst_pos:1
+      ~len:(String.length payload);
+    { opcode = Binary; content = Bytes.to_string buf }
+  | Mls_commit_welcome { commit_welcome } ->
+    (* Binary opcode 28: dave_mls_commit_welcome *)
+    let payload = Base64.decode_exn commit_welcome in
+    let buf = Bytes.create (1 + String.length payload) in
+    Bytes.set buf 0 (Char.of_int_exn 28);
+    Bytes.From_string.blit
+      ~src:payload
+      ~src_pos:0
+      ~dst:buf
+      ~dst_pos:1
+      ~len:(String.length payload);
+    { opcode = Binary; content = Bytes.to_string buf }
+  | _ ->
+    (* JSON for all other events - use Text frame *)
+    let content =
+      event
+      |> Model.Voice_gateway.Event.Sendable.to_protocol
+      |> [%yojson_of: Websocket_protocol.Voice_gateway.Event.t]
+      |> Json.to_string
+    in
+    { opcode = Text; content }
+;;
 
 let write_if_connected t event =
   match t.state with
@@ -116,14 +163,10 @@ let write_if_connected t event =
         (event : Model.Voice_gateway.Event.Sendable.t)];
     return ()
   | Connected connected ->
+    let frame = serialize_event event in
     (match%map
        Deferred.Or_error.try_with_join (fun () ->
-         event
-         |> Model.Voice_gateway.Event.Sendable.to_protocol
-         |> [%yojson_of: Websocket_protocol.Voice_gateway.Event.t]
-         |> Json.to_string
-         |> Pipe.write_if_open (Websocket.writer connected.ws)
-         |> Deferred.ok)
+         frame |> Pipe.write_if_open (Websocket.writer connected.ws) |> Deferred.ok)
      with
      | Ok () ->
        [%log.debug
@@ -152,9 +195,7 @@ let send_identify t =
        ; server_id = t.guild_id
        ; session_id = t.session_id
        ; user_id = t.user_id
-       ; max_dave_protocol_version =
-           (Todo.support_dave_protocol;
-            0)
+       ; max_dave_protocol_version = Dave.max_supported_protocol_version
        })
 ;;
 
@@ -197,6 +238,7 @@ let close_voice_udp t =
 let close t =
   let%bind () = close_voice_udp t in
   let%bind () = disconnect t in
+  Dave_session.destroy t.dave_session;
   return ()
 ;;
 
@@ -266,18 +308,37 @@ let handle_session_description
   t
   { Model.Voice_gateway.Event.Session_description.secret_key
   ; mode = _
-  ; dave_protocol_version = _
+  ; dave_protocol_version
   }
   =
   match t.state with
   | Connected ({ state = Waiting_for_session_description { voice_udp }; _ } as connected)
     ->
+    (* Initialize DAVE session with protocol version *)
+    Dave_session.on_session_description t.dave_session ~dave_protocol_version;
+    let ssrc = Voice_udp.ssrc voice_udp |> Model.Ssrc.to_int_exn in
+    Dave_session.assign_ssrc_to_codec t.dave_session ~ssrc ~codec:Dave.Codec.Opus;
     let secret_key =
       List.of_array secret_key |> List.map ~f:Char.of_int_exn |> Bytes.of_char_list
     in
-    let frames_writer = Voice_udp.frames_writer voice_udp ~secret_key in
+    let dave_encrypt =
+      if dave_protocol_version > 0
+      then
+        Some
+          (Voice_udp.Dave_encrypt.create
+             ~encrypt:(fun ~frame ~output ->
+               Dave_session.encrypt t.dave_session ~ssrc ~frame ~output)
+             ~get_max_ciphertext_byte_size:(fun ~frame_size ->
+               Dave_session.get_max_ciphertext_byte_size t.dave_session ~frame_size))
+      else None
+    in
+    let frames_writer = Voice_udp.frames_writer voice_udp ~secret_key ?dave_encrypt () in
     connected.state <- Ready_to_send { frames_writer };
-    [%log.debug [%here] "Ready to send" ~guild_id:(t.guild_id : Model.Guild_id.t)];
+    [%log.debug
+      [%here]
+        "Ready to send"
+        ~guild_id:(t.guild_id : Model.Guild_id.t)
+        (dave_protocol_version : int)];
     emit t (Voice_ready { channel_id = t.channel_id; frames_writer })
   | state ->
     [%log.error
@@ -296,6 +357,73 @@ let handle_heartbeat_ack t =
         "Ignoring [Heartbeat_ack] in unexpected state"
         ~guild_id:(t.guild_id : Model.Guild_id.t)
         (state : State.t)]
+;;
+
+let handle_dave_protocol_prepare_transition
+  t
+  { Model.Voice_gateway.Event.Dave_protocol_prepare_transition.transition_id
+  ; protocol_version
+  }
+  =
+  Dave_session.on_dave_protocol_prepare_transition
+    t.dave_session
+    ~transition_id
+    ~protocol_version
+;;
+
+let handle_dave_protocol_execute_transition
+  t
+  { Model.Voice_gateway.Event.Dave_protocol_execute_transition.transition_id }
+  =
+  Dave_session.on_dave_protocol_execute_transition t.dave_session ~transition_id
+;;
+
+let handle_dave_protocol_prepare_epoch
+  t
+  { Model.Voice_gateway.Event.Dave_protocol_prepare_epoch.epoch; protocol_version }
+  =
+  Dave_session.on_dave_protocol_prepare_epoch t.dave_session ~epoch ~protocol_version
+;;
+
+let handle_clients_connect t { Model.Voice_gateway.Event.Clients_connect.user_ids } =
+  [%log.debug
+    [%here]
+      "Clients connected to voice"
+      ~guild_id:(t.guild_id : Model.Guild_id.t)
+      (user_ids : string list)];
+  List.iter user_ids ~f:(fun user_id ->
+    Dave_session.create_user t.dave_session ~user_id)
+;;
+
+let handle_client_disconnect t { Model.Voice_gateway.Event.Client_disconnect.user_id } =
+  [%log.debug
+    [%here]
+      "Client disconnected from voice"
+      ~guild_id:(t.guild_id : Model.Guild_id.t)
+      (user_id : string)];
+  Dave_session.destroy_user t.dave_session ~user_id
+;;
+
+let handle_mls_external_sender_package
+  t
+  { Model.Voice_gateway.Event.Mls_external_sender_package.external_sender_package }
+  =
+  Dave_session.on_mls_external_sender_package t.dave_session ~external_sender_package
+;;
+
+let handle_mls_proposals t { Model.Voice_gateway.Event.Mls_proposals.proposals } =
+  Dave_session.on_mls_proposals t.dave_session ~proposals
+;;
+
+let handle_mls_prepare_commit_transition
+  t
+  { Model.Voice_gateway.Event.Mls_prepare_commit_transition.transition_id; commit }
+  =
+  Dave_session.on_mls_prepare_commit_transition t.dave_session ~transition_id ~commit
+;;
+
+let handle_mls_welcome t { Model.Voice_gateway.Event.Mls_welcome.transition_id; welcome } =
+  Dave_session.on_mls_welcome t.dave_session ~transition_id ~welcome
 ;;
 
 let rec schedule_heartbeat t ~heartbeat_interval =
@@ -365,45 +493,150 @@ and handle_event t (event : Model.Voice_gateway.Event.Receivable.t) =
   | Session_description session_description ->
     handle_session_description t session_description;
     return ()
+  | Clients_connect clients_connect ->
+    handle_clients_connect t clients_connect;
+    return ()
+  | Client_disconnect client_disconnect ->
+    handle_client_disconnect t client_disconnect;
+    return ()
   | Heartbeat_ack { nonce = _ } ->
     handle_heartbeat_ack t;
+    return ()
+  | Dave_protocol_prepare_transition prepare_transition ->
+    handle_dave_protocol_prepare_transition t prepare_transition;
+    return ()
+  | Dave_protocol_execute_transition execute_transition ->
+    handle_dave_protocol_execute_transition t execute_transition;
+    return ()
+  | Dave_protocol_prepare_epoch prepare_epoch ->
+    handle_dave_protocol_prepare_epoch t prepare_epoch;
+    return ()
+  | Mls_external_sender_package external_sender ->
+    handle_mls_external_sender_package t external_sender;
+    return ()
+  | Mls_proposals proposals ->
+    handle_mls_proposals t proposals;
+    return ()
+  | Mls_prepare_commit_transition prepare_commit ->
+    handle_mls_prepare_commit_transition t prepare_commit;
+    return ()
+  | Mls_welcome welcome ->
+    handle_mls_welcome t welcome;
     return ()
   | Unknown event ->
     [%log.debug
       [%here] "Received unknown event" (event : Websocket_protocol.Voice_gateway.Event.t)];
     return ()
 
-and read_event t payload =
-  match
-    let%bind.Or_error protocol =
-      Or_error.try_with (fun () ->
-        Json.from_string payload |> [%of_yojson: Websocket_protocol.Voice_gateway.Event.t])
-    in
-    (match Websocket_protocol.Voice_gateway.Event.seq_num protocol, t.state with
-     | None, _ | _, Disconnected -> ()
-     | Some seq_num, Connected connected -> connected.last_seq_num <- Some seq_num);
-    Model.Voice_gateway.Event.Receivable.of_protocol_or_error protocol
-  with
-  | Ok event ->
+(* Parse binary DAVE MLS messages. Binary format:
+   - uint16: sequence number (big-endian)
+   - uint8: opcode
+   - rest: payload
+   Binary opcodes: 25 (external_sender), 27 (proposals), 29 (announce_commit), 30 (welcome) *)
+and parse_binary_mls_event payload =
+  let len = String.length payload in
+  if len < 3
+  then None
+  else (
+    let opcode = Char.to_int (String.get payload 2) in
+    match opcode with
+    | 25 ->
+      (* dave_mls_external_sender_package *)
+      let binary_data = String.sub payload ~pos:3 ~len:(len - 3) in
+      Some
+        (Model.Voice_gateway.Event.Receivable.Mls_external_sender_package
+           { external_sender_package = Base64.encode_string binary_data })
+    | 27 ->
+      (* dave_mls_proposals - extract everything after seq_num (2) + opcode (1) = 3 bytes
+         The C++ library expects operation_type byte at the start of the proposals data *)
+      let binary_data = String.sub payload ~pos:3 ~len:(len - 3) in
+      Some
+        (Model.Voice_gateway.Event.Receivable.Mls_proposals
+           { proposals = Base64.encode_string binary_data })
+    | 29 ->
+      (* dave_mls_announce_commit_transition - format: uint16 transition_id, then commit *)
+      if len < 5
+      then None
+      else (
+        let transition_id =
+          (Char.to_int (String.get payload 3) lsl 8) + Char.to_int (String.get payload 4)
+        in
+        let commit_data = String.sub payload ~pos:5 ~len:(len - 5) in
+        Some
+          (Model.Voice_gateway.Event.Receivable.Mls_prepare_commit_transition
+             { transition_id; commit = Base64.encode_string commit_data }))
+    | 30 ->
+      (* dave_mls_welcome - format: uint16 transition_id, then welcome *)
+      if len < 5
+      then None
+      else (
+        let transition_id =
+          (Char.to_int (String.get payload 3) lsl 8) + Char.to_int (String.get payload 4)
+        in
+        let welcome_data = String.sub payload ~pos:5 ~len:(len - 5) in
+        Some
+          (Model.Voice_gateway.Event.Receivable.Mls_welcome
+             { transition_id; welcome = Base64.encode_string welcome_data }))
+    | _ -> None)
+
+and read_event t (frame : Websocket.Frame_content.t) =
+  let payload = frame.content in
+  (* First try to parse as binary MLS message *)
+  match parse_binary_mls_event payload with
+  | Some event ->
     [%log.debug
       [%here]
-        "Received"
+        "Received binary MLS"
         ~guild_id:(t.guild_id : Model.Guild_id.t)
         (event : Model.Voice_gateway.Event.Receivable.t)];
     let%bind () = handle_event t event in
     return ()
-  | Error error ->
-    [%log.error
-      [%here]
-        "Failed to receive event"
-        ~guild_id:(t.guild_id : Model.Guild_id.t)
-        (payload : string)
-        (error : Error.t)];
-    return ()
+  | None ->
+    (* Fall back to JSON parsing *)
+    (match
+       let%bind.Or_error protocol =
+         Or_error.try_with (fun () ->
+           Json.from_string payload
+           |> [%of_yojson: Websocket_protocol.Voice_gateway.Event.t])
+       in
+       (match Websocket_protocol.Voice_gateway.Event.seq_num protocol, t.state with
+        | None, _ | _, Disconnected -> ()
+        | Some seq_num, Connected connected -> connected.last_seq_num <- Some seq_num);
+       Model.Voice_gateway.Event.Receivable.of_protocol_or_error protocol
+     with
+     | Ok event ->
+       [%log.debug
+         [%here]
+           "Received"
+           ~guild_id:(t.guild_id : Model.Guild_id.t)
+           (event : Model.Voice_gateway.Event.Receivable.t)];
+       let%bind () = handle_event t event in
+       return ()
+     | Error error ->
+       [%log.error
+         [%here]
+           "Failed to receive event"
+           ~guild_id:(t.guild_id : Model.Guild_id.t)
+           (payload : string)
+           (error : Error.t)];
+       return ())
+
+and forward_dave_outgoing t =
+  Pipe.iter (Dave_session.outgoing t.dave_session) ~f:(fun outgoing ->
+    match outgoing with
+    | Mls_key_package { key_package } ->
+      write_if_connected t (Mls_key_package { key_package })
+    | Dave_protocol_ready_for_transition { transition_id } ->
+      write_if_connected t (Dave_protocol_ready_for_transition { transition_id })
+    | Mls_commit_welcome { commit_welcome } ->
+      write_if_connected t (Mls_commit_welcome { commit_welcome })
+    | Mls_invalid_commit_welcome { transition_id } ->
+      write_if_connected t (Mls_invalid_commit_welcome { transition_id }))
 
 and handle_new_connection t state ws =
   t.state <- Connected (State.Connected.create ~time_source:t.time_source state ws);
   don't_wait_for (Pipe.iter (Websocket.reader ws) ~f:(read_event t));
+  don't_wait_for (forward_dave_outgoing t);
   don't_wait_for
     (let%bind reason, message, info = Websocket.close_finished ws in
      [%log.info
@@ -452,7 +685,7 @@ and resume t =
       let%bind () = disconnect t in
       [%log.info [%here] "Resuming..." ~guild_id:(t.guild_id : Model.Guild_id.t)];
       let%bind.Deferred.Or_error response, ws =
-        Cohttp_async_websocket.Client.create (formulate_url t.endpoint)
+        Cohttp_async_websocket.Client.create' (formulate_url t.endpoint)
       in
       [%log.info [%here] "Reconnected" ~guild_id:(t.guild_id : Model.Guild_id.t)];
       [%log.debug [%here] (response : Cohttp.Response.t)];
@@ -490,7 +723,7 @@ and connect t =
     let retry_after = Time_ns.Span.of_int_sec 5 in
     let%bind.Deferred.Or_error response, ws =
       Deferred.repeat_until_finished () (fun () ->
-        match%bind Cohttp_async_websocket.Client.create (formulate_url t.endpoint) with
+        match%bind Cohttp_async_websocket.Client.create' (formulate_url t.endpoint) with
         | Ok _ as result -> return (`Finished result)
         | Error connection_error ->
           (match Attempt.try_ attempt with

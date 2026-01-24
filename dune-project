@@ -2,7 +2,7 @@
 
 (name yum)
 
-(generate_opam_files true)
+(generate_opam_files false)
 
 (source
  (github hitgif/yum))

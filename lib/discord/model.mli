@@ -358,16 +358,89 @@ module Voice_gateway : sig
         }
     end
 
+    module Dave_protocol_prepare_transition : sig
+      type t =
+        { transition_id : int
+        ; protocol_version : int
+        }
+      [@@deriving sexp_of]
+    end
+
+    module Dave_protocol_execute_transition : sig
+      type t = { transition_id : int } [@@deriving sexp_of]
+    end
+
+    module Dave_protocol_ready_for_transition : sig
+      type t = { transition_id : int } [@@deriving sexp_of]
+    end
+
+    module Dave_protocol_prepare_epoch : sig
+      type t =
+        { epoch : int
+        ; protocol_version : int
+        }
+      [@@deriving sexp_of]
+    end
+
+    module Clients_connect : sig
+      type t = { user_ids : string list } [@@deriving sexp_of]
+    end
+
+    module Client_disconnect : sig
+      type t = { user_id : string } [@@deriving sexp_of]
+    end
+
+    module Mls_external_sender_package : sig
+      type t = { external_sender_package : string } [@@deriving sexp_of]
+    end
+
+    module Mls_key_package : sig
+      type t = { key_package : string } [@@deriving sexp_of]
+    end
+
+    module Mls_proposals : sig
+      type t = { proposals : string } [@@deriving sexp_of]
+    end
+
+    module Mls_commit_welcome : sig
+      type t = { commit_welcome : string } [@@deriving sexp_of]
+    end
+
+    module Mls_prepare_commit_transition : sig
+      type t =
+        { transition_id : int
+        ; commit : string
+        }
+      [@@deriving sexp_of]
+    end
+
+    module Mls_welcome : sig
+      type t =
+        { transition_id : int
+        ; welcome : string
+        }
+      [@@deriving sexp_of]
+    end
+
+    module Mls_invalid_commit_welcome : sig
+      type t = { transition_id : int } [@@deriving sexp_of]
+    end
+
     module Receivable : sig
       type t =
         | Ready of Ready.t
-        (** https://discord.com/developers/docs/topics/voice-connections#establishing-a-voice-websocket-connection-example-voice-ready-payload *)
         | Hello of Hello.t
-        (** https://discord.com/developers/docs/topics/voice-connections#heartbeating-example-hello-payload *)
         | Heartbeat_ack of Heartbeat_ack.t
-        (** https://discord.com/developers/docs/topics/voice-connections#heartbeating-example-heartbeat-ack-payload-since-v8 *)
         | Session_description of Session_description.t
-        (** https://discord.com/developers/docs/topics/voice-connections#transport-encryption-modes-example-session-description-payload *)
+        | Clients_connect of Clients_connect.t
+        | Client_disconnect of Client_disconnect.t
+        | Dave_protocol_prepare_transition of Dave_protocol_prepare_transition.t
+        | Dave_protocol_execute_transition of Dave_protocol_execute_transition.t
+        | Dave_protocol_prepare_epoch of Dave_protocol_prepare_epoch.t
+        | Mls_external_sender_package of Mls_external_sender_package.t
+        | Mls_proposals of Mls_proposals.t
+        | Mls_prepare_commit_transition of Mls_prepare_commit_transition.t
+        | Mls_welcome of Mls_welcome.t
         | Unknown of Websocket_protocol.Voice_gateway.Event.t
       [@@deriving sexp_of]
 
@@ -377,15 +450,14 @@ module Voice_gateway : sig
     module Sendable : sig
       type t =
         | Identify of Identify.t
-        (** https://discord.com/developers/docs/topics/voice-connections#establishing-a-voice-websocket-connection-example-voice-identify-payload *)
         | Heartbeat of Heartbeat.t
-        (** https://discord.com/developers/docs/topics/voice-connections#heartbeating-example-heartbeat-payload-since-v8 *)
         | Select_protocol of Select_protocol.t
-        (** https://discord.com/developers/docs/topics/voice-connections#establishing-a-voice-udp-connection-example-select-protocol-payload *)
         | Resume of Resume.t
-        (** https://discord.com/developers/docs/topics/voice-connections#resuming-voice-connection-example-resume-connection-payload-since-v8 *)
         | Speaking of Speaking.t
-        (** https://discord.com/developers/docs/topics/voice-connections#speaking *)
+        | Dave_protocol_ready_for_transition of Dave_protocol_ready_for_transition.t
+        | Mls_key_package of Mls_key_package.t
+        | Mls_commit_welcome of Mls_commit_welcome.t
+        | Mls_invalid_commit_welcome of Mls_invalid_commit_welcome.t
       [@@deriving sexp_of]
 
       val to_protocol : t -> Websocket_protocol.Voice_gateway.Event.t

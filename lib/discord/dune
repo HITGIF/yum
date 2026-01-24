@@ -12,6 +12,7 @@
   core
   common
   cohttp_async_websocket
+  dave
   sodium
   todo
   yojson))

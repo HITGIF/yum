@@ -57,6 +57,17 @@ module Op_code = struct
       | Resumed
       | Clients_connect
       | Client_disconnect
+      | Dave_protocol_prepare_transition
+      | Dave_protocol_execute_transition
+      | Dave_protocol_ready_for_transition
+      | Dave_protocol_prepare_epoch
+      | Mls_external_sender_package
+      | Mls_key_package
+      | Mls_proposals
+      | Mls_commit_welcome
+      | Mls_prepare_commit_transition
+      | Mls_welcome
+      | Mls_invalid_commit_welcome
       | Unknown of int
     [@@deriving equal]
   end

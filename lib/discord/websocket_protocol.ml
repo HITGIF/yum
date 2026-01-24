@@ -93,6 +93,17 @@ module Op_code = struct
       | Resumed
       | Clients_connect
       | Client_disconnect
+      | Dave_protocol_prepare_transition
+      | Dave_protocol_execute_transition
+      | Dave_protocol_ready_for_transition
+      | Dave_protocol_prepare_epoch
+      | Mls_external_sender_package
+      | Mls_key_package
+      | Mls_proposals
+      | Mls_commit_welcome
+      | Mls_prepare_commit_transition
+      | Mls_welcome
+      | Mls_invalid_commit_welcome
       | Unknown of Unknown.t
     [@@deriving equal, sexp_of, quickcheck]
 
@@ -109,6 +120,17 @@ module Op_code = struct
       | Resumed -> 9
       | Clients_connect -> 11
       | Client_disconnect -> 13
+      | Dave_protocol_prepare_transition -> 21
+      | Dave_protocol_execute_transition -> 22
+      | Dave_protocol_ready_for_transition -> 23
+      | Dave_protocol_prepare_epoch -> 24
+      | Mls_external_sender_package -> 25
+      | Mls_key_package -> 26
+      | Mls_proposals -> 27
+      | Mls_commit_welcome -> 28
+      | Mls_prepare_commit_transition -> 29
+      | Mls_welcome -> 30
+      | Mls_invalid_commit_welcome -> 31
       | Unknown n -> n
     ;;
 
@@ -125,6 +147,17 @@ module Op_code = struct
       | 9 -> Resumed
       | 11 -> Clients_connect
       | 13 -> Client_disconnect
+      | 21 -> Dave_protocol_prepare_transition
+      | 22 -> Dave_protocol_execute_transition
+      | 23 -> Dave_protocol_ready_for_transition
+      | 24 -> Dave_protocol_prepare_epoch
+      | 25 -> Mls_external_sender_package
+      | 26 -> Mls_key_package
+      | 27 -> Mls_proposals
+      | 28 -> Mls_commit_welcome
+      | 29 -> Mls_prepare_commit_transition
+      | 30 -> Mls_welcome
+      | 31 -> Mls_invalid_commit_welcome
       | n -> Unknown n
     ;;
 

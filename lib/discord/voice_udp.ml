@@ -33,7 +33,7 @@ module Encryption = struct
       (* https://github.com/Rapptz/discord.py/blob/005287898393bd13d21e077e8607d5226757820a/discord/voice_client.py#L384 *)
       let ciphertext =
         Sodium.Aead_xchacha20poly1305_ietf.encrypt
-          ~message:(Audio.Opus.Frame.to_bytes frame)
+          ~message:frame
           ~additional_data:header
           ~nonce:(pad_nonce nonce ~len:Sodium.Aead_xchacha20poly1305_ietf.nonce_len)
           ~key:secret_key
@@ -195,8 +195,51 @@ let close
   Audio.Opus.Encoder.destroy opus_encoder
 ;;
 
-let frames_writer t ~secret_key =
-  let send_frame = send_frame t ~secret_key in
+module Dave_encrypt = struct
+  type t =
+    { encrypt : frame:bytes -> output:bytes -> Dave.Encryptor_result_code.t * int
+    ; get_max_ciphertext_byte_size : frame_size:int -> int
+    ; mutable output_buffer : bytes
+    }
+
+  let create ~encrypt ~get_max_ciphertext_byte_size =
+    { encrypt; get_max_ciphertext_byte_size; output_buffer = Bytes.create 0 }
+  ;;
+
+  let encrypt t ~frame =
+    let frame_size = Bytes.length frame in
+    let required_size = t.get_max_ciphertext_byte_size ~frame_size in
+    (* Reuse or grow output buffer as needed *)
+    if Bytes.length t.output_buffer < required_size
+    then t.output_buffer <- Bytes.create required_size;
+    let result, bytes_written = t.encrypt ~frame ~output:t.output_buffer in
+    result, bytes_written
+  ;;
+end
+
+let frames_writer t ~secret_key ?dave_encrypt () =
+  let send_frame frame =
+    let frame =
+      match dave_encrypt with
+      | None -> Audio.Opus.Frame.to_bytes frame
+      | Some dave ->
+        (* Apply DAVE encryption to the Opus frame - zero-copy path *)
+        let frame_bytes = Audio.Opus.Frame.to_bytes frame in
+        let result, bytes_written = Dave_encrypt.encrypt dave ~frame:frame_bytes in
+        (match result with
+         | Dave.Encryptor_result_code.Success ->
+           (* Return a sub-view of the output buffer as the new frame *)
+           Bytes.subo dave.output_buffer ~len:bytes_written
+         | error ->
+           (match error with
+            | Success | Missing_key_ratchet -> ()
+            | Encryption_failure | Too_many_attempts | Missing_cryptor ->
+              [%log.error
+                [%here] "DAVE encryption failed" (error : Dave.Encryptor_result_code.t)]);
+           Audio.Opus.Frame.to_bytes frame)
+    in
+    send_frame t frame ~secret_key
+  in
   let reader, writer = Pipe.create () in
   let set_speaking =
     let speaking = ref false in

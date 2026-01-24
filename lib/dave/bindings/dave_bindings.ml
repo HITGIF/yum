@@ -227,7 +227,7 @@ module C (F : Cstubs.FOREIGN) = struct
         (t
          @-> ptr (const uint8_t) (* proposals *)
          @-> size_t (* length *)
-         @-> ptr ocaml_string (* recognizedUserIds *)
+         @-> ptr (ptr char) (* recognizedUserIds *)
          @-> size_t (* recognizedUserIdsLength *)
          @-> ptr (ptr uint8_t) (* commitWelcomeBytes *)
          @-> ptr size_t (* commitWelcomeBytesLength *)
@@ -249,7 +249,7 @@ module C (F : Cstubs.FOREIGN) = struct
         (t
          @-> ptr (const uint8_t) (* welcome *)
          @-> size_t (* length *)
-         @-> ptr ocaml_string (* recognizedUserIds *)
+         @-> ptr (ptr char) (* recognizedUserIds *)
          @-> size_t (* recognizedUserIdsLength *)
          @-> returning Welcome_result.t)
     ;;

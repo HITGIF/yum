@@ -17,6 +17,8 @@ module Data (Element : sig
   val of_list : Element.t list -> t
   val ptr : t -> Element.t ptr
   val len : t -> size_t
+  val to_carray : t -> Element.t carray
+  val of_carray : Element.t carray -> t
 end = struct
   type t = Element.t carray
 
@@ -32,13 +34,36 @@ end = struct
   let of_list = CArray.of_list Element.t
   let ptr = CArray.start
   let len t = CArray.length t |> to_size_t
+  let to_carray = Fn.id
+  let of_carray = Fn.id
 end
 
-module Uint8_data = Data (struct
-    type t = UInt8.t
+module Uint8_data = struct
+  include Data (struct
+      type t = UInt8.t
 
-    let t = uint8_t
-  end)
+      let t = uint8_t
+    end)
+
+  let to_string t =
+    let arr = to_carray t in
+    let len = CArray.length arr in
+    let bytes = Bytes.create len in
+    for i = 0 to len - 1 do
+      Bytes.set bytes i (CArray.get arr i |> UInt8.to_int |> Char.of_int_exn)
+    done;
+    Bytes.to_string bytes
+  ;;
+
+  let of_string string =
+    let len = String.length string in
+    let arr = CArray.make uint8_t len in
+    for i = 0 to len - 1 do
+      CArray.set arr i (String.get string i |> Char.to_int |> UInt8.of_int)
+    done;
+    of_carray arr
+  ;;
+end
 
 module Uint64_data = Data (struct
     type t = UInt64.t
@@ -48,17 +73,29 @@ module Uint64_data = Data (struct
 
 module String_data = struct
   include Data (struct
-      type t = string ocaml
+      type t = char ptr
 
-      let t = ocaml_string
+      let t = ptr char
     end)
 
-  let of_list strings = List.map strings ~f:ocaml_string_start |> of_list
+  let of_list (strings : string list) =
+    List.map strings ~f:(fun string -> CArray.of_string string |> CArray.start) |> of_list
+  ;;
 end
 
 module Codec = Binding.Codec
 module Media_type = Binding.Media_type
-module Encryptor_result_code = Binding.Encryptor_result_code
+
+module Encryptor_result_code = struct
+  type t = Binding.Encryptor_result_code.t =
+    | Success
+    | Encryption_failure
+    | Missing_key_ratchet
+    | Missing_cryptor
+    | Too_many_attempts
+  [@@deriving sexp_of]
+end
+
 module Decryptor_result_code = Binding.Decryptor_result_code
 module Encryptor_stats = Binding.Encryptor_stats
 module Decryptor_stats = Binding.Decryptor_stats
@@ -172,27 +209,22 @@ module Encryptor = struct
     get_max_ciphertext_byte_size t media_type (to_size_t frame_size) |> of_size_t
   ;;
 
-  let encrypt t ~media_type ~ssrc ~frame =
-    let frame_bytes = Bytes.of_string frame in
-    let frame_len = Bytes.length frame_bytes in
-    let capacity = get_max_ciphertext_byte_size t ~media_type ~frame_size:frame_len in
-    let encrypted_frame = Bytes.create capacity in
+  let encrypt t ~media_type ~ssrc ~frame ~output =
+    let frame_len = Bytes.length frame in
+    let capacity = Bytes.length output in
     let bytes_written = allocate size_t (to_size_t 0) in
     let result =
       encrypt
         t
         media_type
         (to_u32 ssrc)
-        !!frame_bytes
+        !!frame
         (to_size_t frame_len)
-        !!encrypted_frame
+        !!output
         (to_size_t capacity)
         bytes_written
     in
-    let output =
-      Bytes.to_string (Bytes.subo encrypted_frame ~len:(of_size_t !@bytes_written))
-    in
-    result, output
+    result, of_size_t !@bytes_written
   ;;
 
   let set_protocol_version_changed_callback t ~callback =
@@ -221,26 +253,21 @@ module Decryptor = struct
     get_max_plaintext_byte_size t media_type (to_size_t encrypted_frame_size) |> of_size_t
   ;;
 
-  let decrypt t ~media_type ~encrypted_frame =
-    let encrypted_bytes = Bytes.of_string encrypted_frame in
-    let encrypted_len = Bytes.length encrypted_bytes in
-    let capacity =
-      get_max_plaintext_byte_size t ~media_type ~encrypted_frame_size:encrypted_len
-    in
-    let frame = Bytes.create capacity in
+  let decrypt t ~media_type ~encrypted_frame ~output =
+    let encrypted_len = Bytes.length encrypted_frame in
+    let capacity = Bytes.length output in
     let bytes_written = allocate size_t (to_size_t 0) in
     let result =
       decrypt
         t
         media_type
-        !!encrypted_bytes
+        !!encrypted_frame
         (to_size_t encrypted_len)
-        !!frame
+        !!output
         (to_size_t capacity)
         bytes_written
     in
-    let output = Bytes.to_string (Bytes.subo frame ~len:(of_size_t !@bytes_written)) in
-    result, output
+    result, of_size_t !@bytes_written
   ;;
 
   let get_stats t ~media_type =
