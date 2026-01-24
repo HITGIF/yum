@@ -23,7 +23,7 @@ type t =
   { session : Dave.Session.t
   ; self_user_id : string
   ; group_id : int
-  ; mutable recognized_user_ids : String.Set.t
+  ; recognized_user_ids : String.Hash_set.t
   ; protocol_transitions : int Int.Table.t
   ; outgoing_writer : Outgoing.t Pipe.Writer.t
   ; outgoing_reader : Outgoing.t Pipe.Reader.t
@@ -46,7 +46,7 @@ let create ~self_user_id ~group_id =
   { session
   ; self_user_id
   ; group_id
-  ; recognized_user_ids = String.Set.empty
+  ; recognized_user_ids = String.Hash_set.create ()
   ; protocol_transitions = Int.Table.create ()
   ; outgoing_writer
   ; outgoing_reader
@@ -57,7 +57,10 @@ let create ~self_user_id ~group_id =
 
 let outgoing t = t.outgoing_reader
 let send_outgoing t msg = Pipe.write_without_pushback_if_open t.outgoing_writer msg
-let get_recognized_user_ids t = Set.to_list t.recognized_user_ids @ [ t.self_user_id ]
+
+let get_recognized_user_ids t =
+  Hash_set.to_list t.recognized_user_ids @ [ t.self_user_id ]
+;;
 
 let make_user_key_ratchet t ~user_id ~protocol_version =
   if protocol_version = disabled_version
@@ -160,8 +163,8 @@ let handle_dave_protocol_init t ~protocol_version =
 
 (** Add an allowed user to the connection *)
 let create_user t ~user_id =
-  t.recognized_user_ids <- Set.add t.recognized_user_ids user_id;
-  let num_users = Set.length t.recognized_user_ids in
+  Hash_set.add t.recognized_user_ids user_id;
+  let num_users = Hash_set.length t.recognized_user_ids in
   [%log.debug [%here] "Adding recognized user" (user_id : string) (num_users : int)];
   let protocol_version = Dave.Session.get_protocol_version t.session in
   setup_key_ratchet_for_user t ~user_id ~protocol_version
@@ -169,8 +172,8 @@ let create_user t ~user_id =
 
 (** Remove an allowed user from the connection *)
 let destroy_user t ~user_id =
-  t.recognized_user_ids <- Set.remove t.recognized_user_ids user_id;
-  let num_users = Set.length t.recognized_user_ids in
+  Hash_set.remove t.recognized_user_ids user_id;
+  let num_users = Hash_set.length t.recognized_user_ids in
   [%log.debug [%here] "Removing recognized user" (user_id : string) (num_users : int)]
 ;;
 
@@ -205,7 +208,7 @@ let on_mls_external_sender_package t ~external_sender_package =
 
 (** Handle Mls_proposals (opcode 27) *)
 let on_mls_proposals t ~proposals =
-  let recognized_user_ids = Set.to_list t.recognized_user_ids in
+  let recognized_user_ids = Hash_set.to_list t.recognized_user_ids in
   let recognized_count = List.length recognized_user_ids in
   [%log.debug [%here] "Received MLS proposals" (recognized_count : int)];
   let proposals = Base64.decode_exn proposals |> Dave.Uint8_data.of_string in
@@ -246,7 +249,7 @@ let on_mls_prepare_commit_transition t ~transition_id ~commit =
 
 (** Handle Mls_welcome (opcode 30) *)
 let on_mls_welcome t ~transition_id ~welcome =
-  let recognized_user_ids = Set.to_list t.recognized_user_ids in
+  let recognized_user_ids = Hash_set.to_list t.recognized_user_ids in
   let num_users = List.length recognized_user_ids in
   [%log.debug [%here] "Received MLS welcome" (transition_id : int) (num_users : int)];
   let welcome_data = Base64.decode_exn welcome |> Dave.Uint8_data.of_string in
