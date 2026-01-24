@@ -6,6 +6,34 @@ module Uint8_data : sig
   type t
 end
 
+module Uint64_data : sig
+  type t
+end
+
+module Commit_result : sig
+  type t
+
+  val destroy : t -> unit
+  val is_failed : t -> bool
+  val is_ignored : t -> bool
+  val get_roster_member_ids : t -> Uint64_data.t
+  val get_roster_member_signature : t -> int -> Uint8_data.t
+end
+
+module Welcome_result : sig
+  type t
+
+  val destroy : t -> unit
+  val get_roster_member_ids : t -> Uint64_data.t
+  val get_roster_member_signature : t -> int -> Uint8_data.t
+end
+
+module Key_ratchet : sig
+  type t
+
+  val destroy : t -> unit
+end
+
 module Session : sig
   type t
 
@@ -22,4 +50,15 @@ module Session : sig
     -> proposals:Uint8_data.t
     -> recognized_user_ids:string list
     -> Uint8_data.t
+
+  val process_commit : t -> Uint8_data.t -> Commit_result.t
+
+  val process_welcome
+    :  t
+    -> Uint8_data.t
+    -> recognized_user_ids:string list
+    -> Welcome_result.t
+
+  val get_marshalled_key_package : t -> Uint8_data.t
+  val get_key_ratchet : t -> string -> Key_ratchet.t
 end

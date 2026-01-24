@@ -249,7 +249,7 @@ module C (F : Cstubs.FOREIGN) = struct
         (t
          @-> ptr (const uint8_t) (* welcome *)
          @-> size_t (* length *)
-         @-> ptr ocaml_bytes (* recognizedUserIds *)
+         @-> ptr ocaml_string (* recognizedUserIds *)
          @-> size_t (* recognizedUserIdsLength *)
          @-> returning Welcome_result.t)
     ;;
@@ -266,7 +266,7 @@ module C (F : Cstubs.FOREIGN) = struct
     let get_key_ratchet =
       foreign
         "daveSessionGetKeyRatchet"
-        (t @-> ptr (const uint8_t) (* userId *) @-> returning Key_ratchet.t)
+        (t @-> string (* userId *) @-> returning Key_ratchet.t)
     ;;
 
     let get_pairwise_fingerprint =

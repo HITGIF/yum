@@ -40,6 +40,12 @@ module Uint8_data = Data (struct
     let t = uint8_t
   end)
 
+module Uint64_data = Data (struct
+    type t = UInt64.t
+
+    let t = uint64_t
+  end)
+
 module String_data = struct
   include Data (struct
       type t = string ocaml
@@ -48,6 +54,42 @@ module String_data = struct
     end)
 
   let of_list strings = List.map strings ~f:ocaml_string_start |> of_list
+end
+
+module Commit_result = struct
+  open! Binding.Commit_result
+
+  type nonrec t = t
+
+  let destroy = destroy
+  let is_failed = is_failed
+  let is_ignored = is_ignored
+  let get_roster_member_ids t = get_roster_member_ids t |> Uint64_data.get
+
+  let get_roster_member_signature t roster_id =
+    get_roster_member_signature t (to_u64 roster_id) |> Uint8_data.get
+  ;;
+end
+
+module Welcome_result = struct
+  open! Binding.Welcome_result
+
+  type nonrec t = t
+
+  let destroy = destroy
+  let get_roster_member_ids t = get_roster_member_ids t |> Uint64_data.get
+
+  let get_roster_member_signature t roster_id =
+    get_roster_member_signature t (to_u64 roster_id) |> Uint8_data.get
+  ;;
+end
+
+module Key_ratchet = struct
+  open! Binding.Key_ratchet
+
+  type nonrec t = t
+
+  let destroy = destroy
 end
 
 module Session = struct
@@ -86,4 +128,21 @@ module Session = struct
       (String_data.len recognized_user_ids)
     |> Uint8_data.get
   ;;
+
+  let process_commit t commit =
+    process_commit t (Uint8_data.ptr commit) (Uint8_data.len commit)
+  ;;
+
+  let process_welcome t welcome ~recognized_user_ids =
+    let recognized_user_ids = String_data.of_list recognized_user_ids in
+    process_welcome
+      t
+      (Uint8_data.ptr welcome)
+      (Uint8_data.len welcome)
+      (String_data.ptr recognized_user_ids)
+      (String_data.len recognized_user_ids)
+  ;;
+
+  let get_marshalled_key_package t = get_marshalled_key_package t |> Uint8_data.get
+  let get_key_ratchet = get_key_ratchet
 end
