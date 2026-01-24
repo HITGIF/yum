@@ -11,14 +11,6 @@ module Outgoing : sig
   [@@deriving sexp_of]
 end
 
-(** Key ratchet update notification *)
-module Key_ratchet_update : sig
-  type t =
-    { user_id : string
-    ; key_ratchet : Dave.Key_ratchet.t option
-    }
-end
-
 type t
 
 (** Create a new DAVE session manager *)
@@ -26,9 +18,6 @@ val create : self_user_id:string -> group_id:int -> t
 
 (** Outgoing messages pipe - messages that should be sent to voice gateway *)
 val outgoing : t -> Outgoing.t Pipe.Reader.t
-
-(** Key ratchet updates pipe - notifications when key ratchets change *)
-val key_ratchet_updates : t -> Key_ratchet_update.t Pipe.Reader.t
 
 (** Add an allowed user to the connection *)
 val create_user : t -> user_id:string -> unit

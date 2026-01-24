@@ -19,24 +19,15 @@ module Outgoing = struct
   [@@deriving sexp_of]
 end
 
-module Key_ratchet_update = struct
-  type t =
-    { user_id : string
-    ; key_ratchet : Dave.Key_ratchet.t option
-    }
-end
-
 type t =
   { mls_session : Dave.Session.t
   ; self_user_id : string
   ; group_id : int
-  ; mutable recognized_user_ids : Set.M(String).t
-  ; protocol_transitions : (int, int) Hashtbl.t
+  ; mutable recognized_user_ids : String.Set.t
+  ; protocol_transitions : int Int.Table.t
   ; mutable latest_prepared_transition_version : int
   ; outgoing_writer : Outgoing.t Pipe.Writer.t
   ; outgoing_reader : Outgoing.t Pipe.Reader.t
-  ; key_ratchet_updates_writer : Key_ratchet_update.t Pipe.Writer.t
-  ; key_ratchet_updates_reader : Key_ratchet_update.t Pipe.Reader.t
   ; encryptor : Dave.Encryptor.t
   ; decryptor : Dave.Decryptor.t
   }
@@ -48,7 +39,6 @@ let create ~self_user_id ~group_id =
   in
   let mls_session = Dave.Session.create ~on_error in
   let outgoing_reader, outgoing_writer = Pipe.create () in
-  let key_ratchet_updates_reader, key_ratchet_updates_writer = Pipe.create () in
   let encryptor = Dave.Encryptor.create () in
   let decryptor = Dave.Decryptor.create () in
   (* Start in passthrough mode until MLS handshake completes *)
@@ -57,26 +47,18 @@ let create ~self_user_id ~group_id =
   { mls_session
   ; self_user_id
   ; group_id
-  ; recognized_user_ids = Set.empty (module String)
-  ; protocol_transitions = Hashtbl.create (module Int)
+  ; recognized_user_ids = String.Set.empty
+  ; protocol_transitions = Int.Table.create ()
   ; latest_prepared_transition_version = 0
   ; outgoing_writer
   ; outgoing_reader
-  ; key_ratchet_updates_writer
-  ; key_ratchet_updates_reader
   ; encryptor
   ; decryptor
   }
 ;;
 
 let outgoing t = t.outgoing_reader
-let key_ratchet_updates t = t.key_ratchet_updates_reader
 let send_outgoing t msg = Pipe.write_without_pushback_if_open t.outgoing_writer msg
-
-let send_key_ratchet_update t update =
-  Pipe.write_without_pushback_if_open t.key_ratchet_updates_writer update
-;;
-
 let get_recognized_user_ids t = Set.to_list t.recognized_user_ids @ [ t.self_user_id ]
 
 let make_user_key_ratchet t ~user_id ~protocol_version =
@@ -87,21 +69,20 @@ let make_user_key_ratchet t ~user_id ~protocol_version =
 
 let setup_key_ratchet_for_user t ~user_id ~protocol_version =
   let key_ratchet = make_user_key_ratchet t ~user_id ~protocol_version in
-  send_key_ratchet_update t { user_id; key_ratchet };
   (* Update encryptor/decryptor if this is for self *)
   if String.equal user_id t.self_user_id
   then (
     match key_ratchet with
-    | Some kr ->
-      Dave.Encryptor.set_key_ratchet t.encryptor kr;
-      Dave.Encryptor.set_passthrough_mode t.encryptor false
-    | None -> Dave.Encryptor.set_passthrough_mode t.encryptor true)
+    | None -> Dave.Encryptor.set_passthrough_mode t.encryptor true
+    | Some key_ratchet ->
+      Dave.Encryptor.set_key_ratchet t.encryptor key_ratchet;
+      Dave.Encryptor.set_passthrough_mode t.encryptor false)
   else (
     match key_ratchet with
-    | Some kr ->
-      Dave.Decryptor.transition_to_key_ratchet t.decryptor kr;
-      Dave.Decryptor.set_passthrough_mode t.decryptor false
-    | None -> Dave.Decryptor.set_passthrough_mode t.decryptor true)
+    | None -> Dave.Decryptor.set_passthrough_mode t.decryptor true
+    | Some key_ratchet ->
+      Dave.Decryptor.transition_to_key_ratchet t.decryptor key_ratchet;
+      Dave.Decryptor.set_passthrough_mode t.decryptor false)
 ;;
 
 let prepare_dave_protocol_ratchets t ~transition_id ~protocol_version =
@@ -137,7 +118,7 @@ let send_mls_key_package t =
 ;;
 
 let handle_dave_protocol_prepare_epoch t ~epoch ~protocol_version ~group_id =
-  if Int.equal epoch mls_new_group_expected_epoch
+  if epoch = mls_new_group_expected_epoch
   then
     Dave.Session.init
       t.mls_session
@@ -372,6 +353,5 @@ let assign_ssrc_to_codec t ~ssrc ~codec =
 let destroy t =
   Dave.Encryptor.destroy t.encryptor;
   Dave.Decryptor.destroy t.decryptor;
-  Pipe.close t.outgoing_writer;
-  Pipe.close t.key_ratchet_updates_writer
+  Pipe.close t.outgoing_writer
 ;;
