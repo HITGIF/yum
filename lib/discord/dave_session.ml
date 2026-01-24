@@ -20,12 +20,11 @@ module Outgoing = struct
 end
 
 type t =
-  { mls_session : Dave.Session.t
+  { session : Dave.Session.t
   ; self_user_id : string
   ; group_id : int
   ; mutable recognized_user_ids : String.Set.t
   ; protocol_transitions : int Int.Table.t
-  ; mutable latest_prepared_transition_version : int
   ; outgoing_writer : Outgoing.t Pipe.Writer.t
   ; outgoing_reader : Outgoing.t Pipe.Reader.t
   ; encryptor : Dave.Encryptor.t
@@ -37,19 +36,18 @@ let create ~self_user_id ~group_id =
   let on_error ~source ~reason =
     [%log.error [%here] "MLS failure" (source : string) (reason : string)]
   in
-  let mls_session = Dave.Session.create ~on_error in
+  let session = Dave.Session.create ~on_error in
   let outgoing_reader, outgoing_writer = Pipe.create () in
   let encryptor = Dave.Encryptor.create () in
   let decryptor = Dave.Decryptor.create () in
   (* Start in passthrough mode until MLS handshake completes *)
   Dave.Encryptor.set_passthrough_mode encryptor true;
   Dave.Decryptor.set_passthrough_mode decryptor true;
-  { mls_session
+  { session
   ; self_user_id
   ; group_id
   ; recognized_user_ids = String.Set.empty
   ; protocol_transitions = Int.Table.create ()
-  ; latest_prepared_transition_version = 0
   ; outgoing_writer
   ; outgoing_reader
   ; encryptor
@@ -64,7 +62,7 @@ let get_recognized_user_ids t = Set.to_list t.recognized_user_ids @ [ t.self_use
 let make_user_key_ratchet t ~user_id ~protocol_version =
   if protocol_version = disabled_version
   then None
-  else Some (Dave.Session.get_key_ratchet t.mls_session user_id)
+  else Some (Dave.Session.get_key_ratchet t.session user_id)
 ;;
 
 let setup_key_ratchet_for_user t ~user_id ~protocol_version =
@@ -100,8 +98,7 @@ let prepare_dave_protocol_ratchets t ~transition_id ~protocol_version =
   (* For init transition, also setup self immediately; otherwise defer to execute *)
   if transition_id = init_transition_id
   then setup_key_ratchet_for_user t ~user_id:t.self_user_id ~protocol_version
-  else Hashtbl.set t.protocol_transitions ~key:transition_id ~data:protocol_version;
-  t.latest_prepared_transition_version <- protocol_version
+  else Hashtbl.set t.protocol_transitions ~key:transition_id ~data:protocol_version
 ;;
 
 let maybe_send_dave_protocol_ready_for_transition t ~transition_id =
@@ -110,7 +107,7 @@ let maybe_send_dave_protocol_ready_for_transition t ~transition_id =
 ;;
 
 let send_mls_key_package t =
-  let key_package = Dave.Session.get_marshalled_key_package t.mls_session in
+  let key_package = Dave.Session.get_marshalled_key_package t.session in
   let key_package_str = Dave.Uint8_data.to_string key_package in
   let key_package_b64 = Base64.encode_string key_package_str in
   [%log.debug [%here] "Sending MLS key package"];
@@ -121,7 +118,7 @@ let handle_dave_protocol_prepare_epoch t ~epoch ~protocol_version ~group_id =
   if epoch = mls_new_group_expected_epoch
   then
     Dave.Session.init
-      t.mls_session
+      t.session
       ~version:protocol_version
       ~group_id
       ~self_user_id:t.self_user_id
@@ -139,7 +136,7 @@ let handle_dave_protocol_execute_transition t ~transition_id =
         "Found transition, setting up self key ratchet"
         (transition_id : int)
         (protocol_version : int)];
-    if protocol_version = disabled_version then Dave.Session.reset t.mls_session;
+    if protocol_version = disabled_version then Dave.Session.reset t.session;
     setup_key_ratchet_for_user t ~user_id:t.self_user_id ~protocol_version
 ;;
 
@@ -148,43 +145,33 @@ let flag_mls_invalid_commit_welcome t ~transition_id =
 ;;
 
 let handle_dave_protocol_init t ~protocol_version =
-  if protocol_version > 0
+  if protocol_version = disabled_version
   then (
+    prepare_dave_protocol_ratchets t ~transition_id:init_transition_id ~protocol_version;
+    handle_dave_protocol_execute_transition t ~transition_id:init_transition_id)
+  else (
     handle_dave_protocol_prepare_epoch
       t
       ~epoch:mls_new_group_expected_epoch
       ~protocol_version
       ~group_id:t.group_id;
     send_mls_key_package t)
-  else (
-    prepare_dave_protocol_ratchets t ~transition_id:init_transition_id ~protocol_version;
-    handle_dave_protocol_execute_transition t ~transition_id:init_transition_id)
 ;;
 
 (** Add an allowed user to the connection *)
 let create_user t ~user_id =
-  let already_exists = Set.mem t.recognized_user_ids user_id in
   t.recognized_user_ids <- Set.add t.recognized_user_ids user_id;
-  let count = Set.length t.recognized_user_ids in
-  [%log.debug
-    [%here]
-      "Adding recognized user"
-      (user_id : string)
-      (already_exists : bool)
-      (count : int)];
-  setup_key_ratchet_for_user
-    t
-    ~user_id
-    ~protocol_version:t.latest_prepared_transition_version
+  let num_users = Set.length t.recognized_user_ids in
+  [%log.debug [%here] "Adding recognized user" (user_id : string) (num_users : int)];
+  let protocol_version = Dave.Session.get_protocol_version t.session in
+  setup_key_ratchet_for_user t ~user_id ~protocol_version
 ;;
 
 (** Remove an allowed user from the connection *)
 let destroy_user t ~user_id =
-  let existed = Set.mem t.recognized_user_ids user_id in
   t.recognized_user_ids <- Set.remove t.recognized_user_ids user_id;
-  let count = Set.length t.recognized_user_ids in
-  [%log.debug
-    [%here] "Removing recognized user" (user_id : string) (existed : bool) (count : int)]
+  let num_users = Set.length t.recognized_user_ids in
+  [%log.debug [%here] "Removing recognized user" (user_id : string) (num_users : int)]
 ;;
 
 (** Handle Session_description (opcode 4) - called when dave_protocol_version is set *)
@@ -206,14 +193,14 @@ let on_dave_protocol_execute_transition t ~transition_id =
 (** Handle Dave_protocol_prepare_epoch (opcode 24) *)
 let on_dave_protocol_prepare_epoch t ~epoch ~protocol_version =
   handle_dave_protocol_prepare_epoch t ~epoch ~protocol_version ~group_id:t.group_id;
-  if Int.equal epoch mls_new_group_expected_epoch then send_mls_key_package t
+  if epoch = mls_new_group_expected_epoch then send_mls_key_package t
 ;;
 
 (** Handle Mls_external_sender_package (opcode 25) *)
 let on_mls_external_sender_package t ~external_sender_package =
   [%log.debug [%here] "Received MLS external sender package"];
   let data = Base64.decode_exn external_sender_package |> Dave.Uint8_data.of_string in
-  Dave.Session.set_external_sender t.mls_session data
+  Dave.Session.set_external_sender t.session data
 ;;
 
 (** Handle Mls_proposals (opcode 27) *)
@@ -221,84 +208,53 @@ let on_mls_proposals t ~proposals =
   let recognized_user_ids = Set.to_list t.recognized_user_ids in
   let recognized_count = List.length recognized_user_ids in
   [%log.debug [%here] "Received MLS proposals" (recognized_count : int)];
-  let proposals_data = Base64.decode_exn proposals |> Dave.Uint8_data.of_string in
+  let proposals = Base64.decode_exn proposals |> Dave.Uint8_data.of_string in
   let commit_welcome =
-    Dave.Session.process_proposals
-      t.mls_session
-      ~proposals:proposals_data
-      ~recognized_user_ids
+    Dave.Session.process_proposals t.session ~proposals ~recognized_user_ids
   in
   (* If process_proposals returns non-empty data, we need to send commit_welcome *)
-  let commit_welcome_str = Dave.Uint8_data.to_string commit_welcome in
-  let commit_welcome_len = String.length commit_welcome_str in
-  if commit_welcome_len > 0
-  then (
-    [%log.debug [%here] "Created commit_welcome" (commit_welcome_len : int)];
-    let commit_welcome_b64 = Base64.encode_string commit_welcome_str in
-    send_outgoing t (Mls_commit_welcome { commit_welcome = commit_welcome_b64 }))
-  else [%log.debug [%here] "process_proposals returned empty, no commit created"]
+  let commit_welcome = Dave.Uint8_data.to_string commit_welcome in
+  if String.is_empty commit_welcome
+  then [%log.debug [%here] "process_proposals returned empty, no commit created"]
+  else (
+    [%log.debug [%here] "Created commit_welcome"];
+    let commit_welcome = Base64.encode_string commit_welcome in
+    send_outgoing t (Mls_commit_welcome { commit_welcome }))
 ;;
 
 (** Handle Mls_prepare_commit_transition (opcode 29) *)
 let on_mls_prepare_commit_transition t ~transition_id ~commit =
   [%log.debug [%here] "Received MLS prepare commit transition" (transition_id : int)];
   let commit_data = Base64.decode_exn commit |> Dave.Uint8_data.of_string in
-  let result = Dave.Session.process_commit t.mls_session commit_data in
+  let result = Dave.Session.process_commit t.session commit_data in
+  let protocol_version = Dave.Session.get_protocol_version t.session in
   let is_ignored = Dave.Commit_result.is_ignored result in
   let is_failed = Dave.Commit_result.is_failed result in
   [%log.debug [%here] "process_commit returned" (is_ignored : bool) (is_failed : bool)];
   if is_ignored
-  then [%log.debug [%here] "MLS commit was ignored by library" (transition_id : int)]
+  then [%log.debug [%here] "MLS commit was ignored" (transition_id : int)]
   else if is_failed
   then (
-    (* Commit failed - reset and reinit.
-       Use latest_prepared_transition_version since get_protocol_version returns 0 after reset. *)
-    [%log.debug [%here] "MLS commit failed, resetting" (transition_id : int)];
+    [%log.error [%here] "MLS commit failed" (transition_id : int)];
     flag_mls_invalid_commit_welcome t ~transition_id;
-    let protocol_version = t.latest_prepared_transition_version in
-    Dave.Session.reset t.mls_session;
     handle_dave_protocol_init t ~protocol_version)
   else (
-    (* Someone else's commit - check if we joined the group *)
-    let roster_ids = Dave.Commit_result.get_roster_member_ids result in
-    let roster_count = Dave.Uint64_data.len roster_ids |> Unsigned.Size_t.to_int in
-    let joined_group = roster_count > 0 in
-    [%log.debug
-      [%here]
-        "process_commit result"
-        (transition_id : int)
-        (roster_count : int)
-        (joined_group : bool)];
-    if joined_group
-    then (
-      let protocol_version = Dave.Session.get_protocol_version t.mls_session in
-      prepare_dave_protocol_ratchets t ~transition_id ~protocol_version;
-      maybe_send_dave_protocol_ready_for_transition t ~transition_id)
-    else (
-      (* Commit was not ignored but we didn't join - flag invalid and reinit.
-         Use latest_prepared_transition_version for consistency. *)
-      [%log.debug
-        [%here]
-          "MLS commit didn't result in joining group, reinitializing"
-          (transition_id : int)];
-      let protocol_version = t.latest_prepared_transition_version in
-      flag_mls_invalid_commit_welcome t ~transition_id;
-      handle_dave_protocol_init t ~protocol_version));
+    prepare_dave_protocol_ratchets t ~transition_id ~protocol_version;
+    maybe_send_dave_protocol_ready_for_transition t ~transition_id);
   Dave.Commit_result.destroy result
 ;;
 
 (** Handle Mls_welcome (opcode 30) *)
 let on_mls_welcome t ~transition_id ~welcome =
   let recognized_user_ids = Set.to_list t.recognized_user_ids in
-  let recognized_count = List.length recognized_user_ids in
-  [%log.debug
-    [%here] "Received MLS welcome" (transition_id : int) (recognized_count : int)];
+  let num_users = List.length recognized_user_ids in
+  [%log.debug [%here] "Received MLS welcome" (transition_id : int) (num_users : int)];
   let welcome_data = Base64.decode_exn welcome |> Dave.Uint8_data.of_string in
-  let result =
-    Dave.Session.process_welcome t.mls_session welcome_data ~recognized_user_ids
+  let welcome_result =
+    Dave.Session.process_welcome t.session welcome_data ~recognized_user_ids
   in
   (* Check if we joined the group by looking at roster member IDs *)
-  let roster_ids = Dave.Welcome_result.get_roster_member_ids result in
+  let roster_ids = Dave.Welcome_result.get_roster_member_ids welcome_result in
   let roster_count = Dave.Uint64_data.len roster_ids |> Unsigned.Size_t.to_int in
   let joined_group = roster_count > 0 in
   [%log.debug
@@ -309,7 +265,7 @@ let on_mls_welcome t ~transition_id ~welcome =
       (joined_group : bool)];
   if joined_group
   then (
-    let protocol_version = Dave.Session.get_protocol_version t.mls_session in
+    let protocol_version = Dave.Session.get_protocol_version t.session in
     [%log.debug [%here] "Successfully joined group via welcome" (protocol_version : int)];
     prepare_dave_protocol_ratchets t ~transition_id ~protocol_version;
     maybe_send_dave_protocol_ready_for_transition t ~transition_id)
@@ -319,7 +275,7 @@ let on_mls_welcome t ~transition_id ~welcome =
       [%here] "MLS welcome didn't result in joining group" (transition_id : int)];
     flag_mls_invalid_commit_welcome t ~transition_id;
     send_mls_key_package t);
-  Dave.Welcome_result.destroy result
+  Dave.Welcome_result.destroy welcome_result
 ;;
 
 (** Encrypt a frame for sending *)
