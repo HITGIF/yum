@@ -33,7 +33,6 @@ type t =
   ; mutable recognized_user_ids : Set.M(String).t
   ; protocol_transitions : (int, int) Hashtbl.t
   ; mutable latest_prepared_transition_version : int
-  ; mutable pending_self_commit : bool (* true when we've sent a commit_welcome *)
   ; outgoing_writer : Outgoing.t Pipe.Writer.t
   ; outgoing_reader : Outgoing.t Pipe.Reader.t
   ; key_ratchet_updates_writer : Key_ratchet_update.t Pipe.Writer.t
@@ -61,7 +60,6 @@ let create ~self_user_id ~group_id =
   ; recognized_user_ids = Set.empty (module String)
   ; protocol_transitions = Hashtbl.create (module Int)
   ; latest_prepared_transition_version = 0
-  ; pending_self_commit = false
   ; outgoing_writer
   ; outgoing_reader
   ; key_ratchet_updates_writer
@@ -241,11 +239,7 @@ let on_mls_external_sender_package t ~external_sender_package =
 let on_mls_proposals t ~proposals =
   let recognized_user_ids = Set.to_list t.recognized_user_ids in
   let recognized_count = List.length recognized_user_ids in
-  [%log.debug
-    [%here]
-      "Received MLS proposals"
-      (recognized_count : int)
-      (t.pending_self_commit : bool)];
+  [%log.debug [%here] "Received MLS proposals" (recognized_count : int)];
   let proposals_data = Base64.decode_exn proposals |> Dave.Uint8_data.of_string in
   let commit_welcome =
     Dave.Session.process_proposals
@@ -258,90 +252,21 @@ let on_mls_proposals t ~proposals =
   let commit_welcome_len = String.length commit_welcome_str in
   if commit_welcome_len > 0
   then (
-    [%log.debug
-      [%here]
-        "Created commit_welcome, setting pending_self_commit=true"
-        (commit_welcome_len : int)];
+    [%log.debug [%here] "Created commit_welcome" (commit_welcome_len : int)];
     let commit_welcome_b64 = Base64.encode_string commit_welcome_str in
-    (* Mark that we have a pending self-commit - process_proposals already advanced our state *)
-    t.pending_self_commit <- true;
     send_outgoing t (Mls_commit_welcome { commit_welcome = commit_welcome_b64 }))
   else [%log.debug [%here] "process_proposals returned empty, no commit created"]
 ;;
 
 (** Handle Mls_prepare_commit_transition (opcode 29) *)
 let on_mls_prepare_commit_transition t ~transition_id ~commit =
-  [%log.debug
-    [%here]
-      "Received MLS prepare commit transition"
-      (transition_id : int)
-      (t.pending_self_commit : bool)];
+  [%log.debug [%here] "Received MLS prepare commit transition" (transition_id : int)];
   let commit_data = Base64.decode_exn commit |> Dave.Uint8_data.of_string in
   let result = Dave.Session.process_commit t.mls_session commit_data in
   let is_ignored = Dave.Commit_result.is_ignored result in
   let is_failed = Dave.Commit_result.is_failed result in
   [%log.debug [%here] "process_commit returned" (is_ignored : bool) (is_failed : bool)];
-  if t.pending_self_commit
-  then (
-    (* We had a pending commit. Check if it was successfully processed or if a different
-       commit won. When our commit wins, process_commit returns is_ignored=true and the
-       state is already correct from process_proposals. When a different commit wins,
-       we may get is_failed=true or the commit may be "unprocessable" (unexpected group)
-       which also shows as is_ignored=true but doesn't advance the epoch. *)
-    t.pending_self_commit <- false;
-    if is_failed
-    then (
-      (* Our commit didn't win and we couldn't process the winning commit.
-         Per Discord docs: send invalid_commit_welcome, reset, send new key package.
-         Note: Use latest_prepared_transition_version since get_protocol_version returns 0
-         after reset. *)
-      [%log.debug
-        [%here]
-          "Commit failed while pending_self_commit=true, resetting"
-          (transition_id : int)];
-      flag_mls_invalid_commit_welcome t ~transition_id;
-      let protocol_version = t.latest_prepared_transition_version in
-      Dave.Session.reset t.mls_session;
-      handle_dave_protocol_init t ~protocol_version)
-    else (
-      (* is_ignored=true means either our commit won (already processed) or the commit
-         was for an unexpected group and couldn't be processed. Check roster to verify. *)
-      let roster_ids = Dave.Commit_result.get_roster_member_ids result in
-      let roster_count = Dave.Uint64_data.len roster_ids |> Unsigned.Size_t.to_int in
-      [%log.debug
-        [%here]
-          "Checking commit result after pending_self_commit"
-          (transition_id : int)
-          (is_ignored : bool)
-          (roster_count : int)];
-      if is_ignored && roster_count = 0
-      then (
-        (* Commit was ignored with no roster - likely "unexpected group" error.
-           This means a different commit won but we couldn't process it.
-           Reset and reinitialize per Discord docs.
-           Note: The C++ library may have already reset itself internally when it
-           encountered "unexpected group", so get_protocol_version would return 0.
-           Use latest_prepared_transition_version instead. *)
-        [%log.debug
-          [%here]
-            "Commit ignored with empty roster, likely different commit won - resetting"
-            (transition_id : int)];
-        flag_mls_invalid_commit_welcome t ~transition_id;
-        let protocol_version = t.latest_prepared_transition_version in
-        Dave.Session.reset t.mls_session;
-        handle_dave_protocol_init t ~protocol_version)
-      else (
-        (* Our commit won - proceed normally *)
-        [%log.debug
-          [%here]
-            "Our commit was accepted"
-            (transition_id : int)
-            (is_ignored : bool)];
-        let protocol_version = Dave.Session.get_protocol_version t.mls_session in
-        [%log.debug [%here] "Preparing ratchets for own commit" (protocol_version : int)];
-        prepare_dave_protocol_ratchets t ~transition_id ~protocol_version;
-        maybe_send_dave_protocol_ready_for_transition t ~transition_id)))
-  else if is_ignored
+  if is_ignored
   then [%log.debug [%here] "MLS commit was ignored by library" (transition_id : int)]
   else if is_failed
   then (
@@ -386,11 +311,7 @@ let on_mls_welcome t ~transition_id ~welcome =
   let recognized_user_ids = Set.to_list t.recognized_user_ids in
   let recognized_count = List.length recognized_user_ids in
   [%log.debug
-    [%here]
-      "Received MLS welcome"
-      (transition_id : int)
-      (recognized_count : int)
-      (t.pending_self_commit : bool)];
+    [%here] "Received MLS welcome" (transition_id : int) (recognized_count : int)];
   let welcome_data = Base64.decode_exn welcome |> Dave.Uint8_data.of_string in
   let result =
     Dave.Session.process_welcome t.mls_session welcome_data ~recognized_user_ids
@@ -408,8 +329,7 @@ let on_mls_welcome t ~transition_id ~welcome =
   if joined_group
   then (
     let protocol_version = Dave.Session.get_protocol_version t.mls_session in
-    [%log.debug
-      [%here] "Successfully joined group via welcome" (protocol_version : int)];
+    [%log.debug [%here] "Successfully joined group via welcome" (protocol_version : int)];
     prepare_dave_protocol_ratchets t ~transition_id ~protocol_version;
     maybe_send_dave_protocol_ready_for_transition t ~transition_id)
   else (
