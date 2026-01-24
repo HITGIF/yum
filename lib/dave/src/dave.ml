@@ -146,3 +146,9 @@ module Session = struct
   let get_marshalled_key_package t = get_marshalled_key_package t |> Uint8_data.get
   let get_key_ratchet = get_key_ratchet
 end
+
+module Encryptor = struct
+  open! Binding.Encryptor
+
+  type nonrec t = t
+end
