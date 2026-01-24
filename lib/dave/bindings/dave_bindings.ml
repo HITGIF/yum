@@ -1,5 +1,6 @@
 open! Core
 open! Ctypes
+open! Foreign
 
 module C (F : Cstubs.FOREIGN) = struct
   open! F
@@ -167,11 +168,11 @@ module C (F : Cstubs.FOREIGN) = struct
       foreign
         "daveSessionCreate"
         (ptr void (* context *)
-         @-> ocaml_bytes (* authSessionId *)
-         @-> static_funptr (* callback *)
+         @-> ptr void (* authSessionId *)
+         @-> funptr (* callback *)
                Ctypes.(
-                 ocaml_bytes (* source *)
-                 @-> ocaml_bytes (* reason *)
+                 string (* source *)
+                 @-> string (* reason *)
                  @-> ptr void (* userData *)
                  @-> returning void)
          @-> ptr void (* userData *)
@@ -186,7 +187,7 @@ module C (F : Cstubs.FOREIGN) = struct
         (t
          @-> uint16_t (* version *)
          @-> uint64_t (* groupId *)
-         @-> ocaml_bytes (* selfUserId *)
+         @-> string (* selfUserId *)
          @-> returning void)
     ;;
 
@@ -226,7 +227,7 @@ module C (F : Cstubs.FOREIGN) = struct
         (t
          @-> ptr (const uint8_t) (* proposals *)
          @-> size_t (* length *)
-         @-> ptr ocaml_bytes (* recognizedUserIds *)
+         @-> ptr ocaml_string (* recognizedUserIds *)
          @-> size_t (* recognizedUserIdsLength *)
          @-> ptr (ptr uint8_t) (* commitWelcomeBytes *)
          @-> ptr size_t (* commitWelcomeBytesLength *)
@@ -273,8 +274,8 @@ module C (F : Cstubs.FOREIGN) = struct
         "daveSessionGetPairwiseFingerprint"
         (t
          @-> uint16_t (* version *)
-         @-> ocaml_bytes (* userId *)
-         @-> static_funptr (* callback *)
+         @-> string (* userId *)
+         @-> funptr (* callback *)
                Ctypes.(
                  ptr (const uint8_t) (* fingerprint *)
                  @-> size_t (* length *)
@@ -342,8 +343,7 @@ module C (F : Cstubs.FOREIGN) = struct
       foreign
         "daveEncryptorSetProtocolVersionChangedCallback"
         (t
-         @-> static_funptr (* callback *)
-               Ctypes.(ptr void (* userData *) @-> returning void)
+         @-> funptr (* callback *) Ctypes.(ptr void (* userData *) @-> returning void)
          @-> ptr void (* userData *)
          @-> returning void)
     ;;

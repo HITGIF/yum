@@ -1,6 +1,10 @@
 open! Core
 open! Ctypes
 
+let to_u16 = Unsigned.UInt16.of_int
+let of_u16 = Unsigned.UInt16.to_int
+let to_u64 = Unsigned.UInt64.of_int
+let of_u64 = Unsigned.UInt64.to_int
 let to_ull = Unsigned.ULLong.of_int
 let of_ull = Unsigned.ULLong.to_int
 let to_size_t = Unsigned.Size_t.of_int
