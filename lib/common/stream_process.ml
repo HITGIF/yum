@@ -4,6 +4,7 @@ open! Async
 let stream
   ~(here : [%call_pos])
   ?(cancellation_token = Deferred.never ())
+  ?(on_error = Fn.const Deferred.unit)
   ?stdin
   ~prog
   ~args
@@ -34,11 +35,12 @@ let stream
        [%log.debug "Process finished" (here : Source_code_position.t)];
        return ()
      | Error error ->
-       let%map stderr = Process.stderr process |> Reader.contents in
+       let%bind stderr = Process.stderr process |> Reader.contents in
        [%log.error
          "Process finished with error"
            (here : Source_code_position.t)
            (error : Core_unix.Exit_or_signal.error)
-           (stderr : string)]);
+           (stderr : string)];
+       on_error stderr);
   Process.stdout process
 ;;

@@ -60,12 +60,11 @@ module Songs = struct
 end
 
 type t =
-  { auth_token : Auth_token.t
-  ; ffmpeg_path : File_path.Absolute.t
+  { ffmpeg_path : File_path.Absolute.t
   ; yt_dlp_path : File_path.Absolute.t
   ; guild_id : Guild_id.t
+  ; mutable agent : Discord.Agent.t
   ; mutable voice_channel : Channel_id.t
-  ; mutable message_channel : Channel_id.t
   ; mutable frames_writer : Audio.Pcm_frame.t Queue.t Pipe.Writer.t option
   ; mutable playing : Song.t option
   ; songs : Songs.t
@@ -82,12 +81,11 @@ let on_song_start t = (t.on_song_start :> (Song.t, read) Bvar.t)
 let on_songs_empty t = (t.on_songs_empty :> (unit, read) Bvar.t)
 
 let close
-  { auth_token = _
-  ; ffmpeg_path = _
+  { ffmpeg_path = _
   ; yt_dlp_path = _
   ; guild_id
+  ; agent = _
   ; voice_channel = _
-  ; message_channel = _
   ; frames_writer
   ; playing = _
   ; songs = _
@@ -104,8 +102,8 @@ let close
   Option.iter frames_writer ~f:Pipe.close
 ;;
 
+let set_agent t agent = t.agent <- agent
 let set_voice_channel t channel_id = t.voice_channel <- channel_id
-let set_message_channel t channel_id = t.message_channel <- channel_id
 
 let set_frames_writer t frames_writer =
   let old_frames_writer = t.frames_writer in
@@ -165,18 +163,20 @@ let rec play ({ guild_id; _ } as t) =
     [%log.info [%here] "Playing song" (guild_id : Guild_id.t) (song : Song.t)];
     let%bind () =
       let url = Song.to_url song in
-      Discord.Http.Create_message.call
-        ~auth_token:t.auth_token
-        ~channel_id:t.message_channel
-        { content = Some [%string ":yum: %{url}"] }
-      |> Deferred.ignore_m
+      Discord.Agent.send_message ~emoji:Yum t.agent url
     in
     t.playing <- Some song;
     Bvar.broadcast t.on_song_start song;
     let%bind () =
       let download () =
         match Song.to_src song with
-        | `Youtube url -> Yt_dlp.download ~prog:t.yt_dlp_path ~cancellation_token url
+        | `Youtube url ->
+          Yt_dlp.download
+            ~prog:t.yt_dlp_path
+            ~cancellation_token
+            ~on_error:(fun error ->
+              Discord.Agent.send_message ~code:() ~emoji:Fearful t.agent error)
+            url
         | `Bilibili url -> Bilibili.download (Uri.of_string url)
       in
       match%bind
@@ -190,11 +190,7 @@ let rec play ({ guild_id; _ } as t) =
       | Error error ->
         let%bind () =
           let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
-          Discord.Http.Create_message.call
-            ~auth_token:t.auth_token
-            ~channel_id:t.message_channel
-            { content = Some [%string ":fearful: ```%{error}```"] }
-          |> Deferred.ignore_m
+          Discord.Agent.send_message ~code:() ~emoji:Fearful t.agent error
         in
         [%log.error
           [%here]
@@ -242,12 +238,11 @@ let skip { guild_id; skip; _ } =
 ;;
 
 let create
-  ~auth_token
   ~ffmpeg_path
   ~yt_dlp_path
   ~guild_id
+  ~agent
   ~voice_channel
-  ~message_channel
   ~default_songs
   ~frames_writer
   =
@@ -258,12 +253,11 @@ let create
   let on_new_frames_writer = Bvar.create () in
   let started = Set_once.create () in
   let closed = Set_once.create () in
-  { auth_token
-  ; ffmpeg_path
+  { ffmpeg_path
   ; yt_dlp_path
   ; guild_id
+  ; agent
   ; voice_channel
-  ; message_channel
   ; frames_writer
   ; playing = None
   ; songs
