@@ -36,7 +36,6 @@ wget -O yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_
 chmod +x yt-dlp
 sudo mv yt-dlp /usr/bin # or somewhere else you prefer
 ```
-> Make sure `python` is aliased to `python3`. If not, run `sudo apt install -y python-is-python3`
 5. Download [yum](https://github.com/HITGIF/yum)
 ```sh
 wget https://github.com/HITGIF/yum/releases/latest/download/yum
