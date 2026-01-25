@@ -48,6 +48,23 @@ let create ~ssrc ~ip ~port ~tls_encryption_modes ~send_speaking =
   }
 ;;
 
+let close
+  { ssrc = _
+  ; socket
+  ; dest = _
+  ; sendto = _
+  ; send_speaking = _
+  ; tls_encryptor = _
+  ; opus_encoder
+  ; seq_num = _
+  ; timestamp = _
+  ; nonce = _
+  }
+  =
+  Socket.shutdown socket `Both;
+  Audio.Opus.Encoder.destroy opus_encoder
+;;
+
 let tls_encryption_mode t = Tls_encryptor.mode t.tls_encryptor
 
 (** https://discord.com/developers/docs/topics/voice-connections#ip-discovery *)
@@ -96,6 +113,72 @@ let discover_ip t =
   Ivar.read ret
 ;;
 
+module State = struct
+  let max_idle_duration = Audio.Pcm_frame.frame_duration
+
+  type state =
+    | Not_playing
+    | Playing of
+        { start_time : Time_ns.t
+        ; mutable sent_frames : int
+        }
+
+  type t =
+    { mutable state : state
+    ; on_change : [ `Playing | `Not_playing ] -> unit Deferred.t
+    }
+
+  let create ~on_change = { state = Not_playing; on_change }
+
+  let start t =
+    match t.state with
+    | Playing _ -> return ()
+    | Not_playing ->
+      t.state <- Playing { start_time = Time_ns.now (); sent_frames = 0 };
+      t.on_change `Playing
+  ;;
+
+  let stop t =
+    match t.state with
+    | Not_playing -> return ()
+    | Playing { start_time = _; sent_frames = _ } ->
+      t.state <- Not_playing;
+      t.on_change `Not_playing
+  ;;
+
+  let on_waiting_for_frames t =
+    match t.state with
+    | Not_playing -> ()
+    | Playing { start_time; sent_frames } ->
+      don't_wait_for
+        (let%bind () = Clock_ns.after max_idle_duration in
+         match t.state with
+         | Not_playing -> return ()
+         | Playing { start_time = start_time'; sent_frames = sent_frames' } ->
+           if [%equal: Time_ns.t] start_time start_time'
+              && [%equal: int] sent_frames sent_frames'
+           then stop t
+           else return ())
+  ;;
+
+  let on_sending_frames t ~num_frames =
+    match t.state with
+    | Not_playing -> start t
+    | Playing ({ start_time; sent_frames } as playing) ->
+      let expected_elapsed =
+        Time_ns.Span.(scale_int Audio.Pcm_frame.frame_duration sent_frames)
+      in
+      let actual_elapsed = Time_ns.diff (Time_ns.now ()) start_time in
+      let song_elapsed_diff =
+        Time_ns.Span.(max zero (actual_elapsed - expected_elapsed))
+      in
+      playing.sent_frames <- sent_frames + num_frames;
+      Clock_ns.after
+        Time_ns.Span.(
+          scale_int Audio.Pcm_frame.frame_duration num_frames - song_elapsed_diff)
+  ;;
+end
+
 let header ~seq_num ~timestamp ~ssrc =
   let buf = Iobuf.create ~len:12 in
   Iobuf.Fill.uint8_trunc buf 0x80;
@@ -135,23 +218,6 @@ let send_speaking t is_speaking =
   t.send_speaking { speaking; delay = 0; ssrc = t.ssrc }
 ;;
 
-let close
-  { ssrc = _
-  ; socket
-  ; dest = _
-  ; sendto = _
-  ; send_speaking = _
-  ; tls_encryptor = _
-  ; opus_encoder
-  ; seq_num = _
-  ; timestamp = _
-  ; nonce = _
-  }
-  =
-  Socket.shutdown socket `Both;
-  Audio.Opus.Encoder.destroy opus_encoder
-;;
-
 let frames_writer t ~tls_secret_key ~dave_session =
   let mls_encrypt opus_frame =
     Dave_session.encrypt
@@ -160,29 +226,16 @@ let frames_writer t ~tls_secret_key ~dave_session =
       ~plaintext:(Audio.Opus.Frame.to_bytes opus_frame)
   in
   let send_frame = send_frame t ~tls_secret_key in
-  let reader, writer = Pipe.create () in
-  let set_speaking =
-    let speaking = ref false in
-    fun to_ ->
-      if [%equal: bool] !speaking to_
-      then return ()
-      else (
-        speaking := to_;
-        send_speaking t to_)
+  let state =
+    State.create ~on_change:(function
+      | `Playing -> send_speaking t true
+      | `Not_playing ->
+        send_five_silent_frames (Fn.compose send_frame mls_encrypt);
+        send_speaking t false)
   in
-  let song_start = ref None in
-  let song_sent_frames = ref 0 in
-  let rec send () =
-    let read_frames = Ivar.create () in
-    don't_wait_for
-      (let%bind () = Clock_ns.after Audio.Pcm_frame.frame_duration in
-       if Ivar.is_full read_frames
-       then return ()
-       else (
-         song_start := None;
-         song_sent_frames := 0;
-         let%map () = set_speaking false in
-         send_five_silent_frames (Fn.compose send_frame mls_encrypt)));
+  let reader, writer = Pipe.create () in
+  let rec loop () =
+    State.on_waiting_for_frames state;
     match%bind Pipe.read reader with
     | `Eof ->
       [%log.debug
@@ -190,38 +243,18 @@ let frames_writer t ~tls_secret_key ~dave_session =
           "Frames writer closed, closing voice UDP..."
           ~dest:(t.dest : Socket.Address.Inet.t)];
       close t;
-      send_speaking t false
+      return ()
     | `Ok pcm_frames ->
-      Ivar.fill_if_empty read_frames ();
       let num_frames = Queue.length pcm_frames in
       let mls_encrypted_frames =
         Queue.map pcm_frames ~f:(fun pcm ->
           Audio.Opus.Encoder.encode t.opus_encoder pcm |> ok_exn |> mls_encrypt)
       in
-      let%bind () = set_speaking true in
-      let%bind () =
-        match !song_start with
-        | None -> return ()
-        | Some song_start ->
-          let expected_elapsed =
-            Time_ns.Span.(scale_int Audio.Pcm_frame.frame_duration !song_sent_frames)
-          in
-          let actual_elapsed = Time_ns.diff (Time_ns.now ()) song_start in
-          let song_elapsed_diff =
-            Time_ns.Span.(max zero (actual_elapsed - expected_elapsed))
-          in
-          Clock_ns.after
-            Time_ns.Span.(
-              scale_int Audio.Pcm_frame.frame_duration num_frames - song_elapsed_diff)
-      in
+      let%bind () = State.on_sending_frames state ~num_frames in
       Queue.iter mls_encrypted_frames ~f:send_frame;
-      (match !song_start with
-       | Some _ -> ()
-       | None -> song_start := Some (Time_ns.now ()));
-      song_sent_frames := !song_sent_frames + num_frames;
-      send ()
+      loop ()
   in
-  don't_wait_for (send ());
+  don't_wait_for (loop ());
   writer
 ;;
 
