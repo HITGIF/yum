@@ -24,7 +24,8 @@ module State = struct
         | Waiting_for_ready
         | Waiting_for_session_description of { voice_udp : (Voice_udp.t[@sexp.opaque]) }
         | Ready_to_send of
-            { frames_writer : (Audio.Pcm_frame.t Base.Queue.t Pipe.Writer.t[@sexp.opaque])
+            { dave_session : (Dave_session.t[@sexp.opaque])
+            ; frames_writer : (Audio.Pcm_frame.t Base.Queue.t Pipe.Writer.t[@sexp.opaque])
             }
       [@@deriving sexp_of]
     end
@@ -69,7 +70,6 @@ type t =
   ; reincarnate : unit -> unit Deferred.t
   ; events_reader : Event.t Pipe.Reader.t
   ; events_writer : Event.t Pipe.Writer.t
-  ; dave_session : Dave_session.t
   }
 [@@deriving fields ~getters]
 
@@ -90,11 +90,6 @@ let create
     | Some time_source -> Time_source.read_only time_source
   in
   let events_reader, events_writer = Pipe.create () in
-  let dave_session =
-    Dave_session.create
-      ~self_user_id:(Model.User_id.to_string user_id)
-      ~group_id:(Model.Channel_id.to_string channel_id |> Int.of_string)
-  in
   { state = Disconnected
   ; time_source
   ; token
@@ -106,7 +101,6 @@ let create
   ; reincarnate
   ; events_reader
   ; events_writer
-  ; dave_session
   }
 ;;
 
@@ -157,7 +151,7 @@ let send_identify t =
        ; server_id = t.guild_id
        ; session_id = t.session_id
        ; user_id = t.user_id
-       ; max_dave_protocol_version = Dave.max_supported_protocol_version
+       ; max_dave_protocol_version = Dave_session.max_supported_protocol_version
        })
 ;;
 
@@ -189,9 +183,10 @@ let disconnect t =
     return ()
 ;;
 
-let close_voice_udp t =
+let close_connected t =
   match t.state with
-  | Connected { state = Ready_to_send { frames_writer }; _ } ->
+  | Connected { state = Ready_to_send { frames_writer; dave_session }; _ } ->
+    Dave_session.close dave_session;
     Pipe.close frames_writer;
     Pipe.closed frames_writer
   | _ -> return ()
@@ -199,8 +194,7 @@ let close_voice_udp t =
 
 let close t =
   [%log.info [%here] "Closing..." ~guild_id:(t.guild_id : Model.Guild_id.t)];
-  Dave_session.close t.dave_session;
-  let%bind () = close_voice_udp t in
+  let%bind () = close_connected t in
   let%bind () = disconnect t in
   return ()
 ;;
@@ -294,20 +288,24 @@ let handle_session_description
             ~expected:
               (Voice_udp.tls_encryption_mode voice_udp : Model.Tls_encryption_mode.t)];
     let ssrc = Voice_udp.ssrc voice_udp in
-    Dave_session.on_session_description t.dave_session ~dave_protocol_version;
-    Dave_session.assign_ssrc_to_codec t.dave_session ~ssrc ~codec:Opus;
+    let dave_session, events_reader =
+      Dave_session.create ~user_id:t.user_id ~channel_id:t.channel_id
+    in
+    don't_wait_for (Pipe.iter events_reader ~f:(write_if_connected t));
+    Dave_session.on_session_description dave_session dave_protocol_version;
+    Dave_session.assign_ssrc_to_codec dave_session ~ssrc ~codec:Opus;
     let frames_writer =
       let tls_secret_key =
         List.of_array tls_secret_key |> List.map ~f:Char.of_int_exn |> Bytes.of_char_list
       in
-      Voice_udp.frames_writer voice_udp ~tls_secret_key ~dave_session:t.dave_session
+      Voice_udp.frames_writer voice_udp ~tls_secret_key ~dave_session
     in
-    connected.state <- Ready_to_send { frames_writer };
+    connected.state <- Ready_to_send { frames_writer; dave_session };
     [%log.debug
       [%here]
         "Ready to send"
         ~guild_id:(t.guild_id : Model.Guild_id.t)
-        (dave_protocol_version : int)];
+        (dave_protocol_version : Model.Dave_protocol_version.t)];
     emit t (Voice_ready { channel_id = t.channel_id; frames_writer })
   | state ->
     [%log.error
@@ -315,6 +313,12 @@ let handle_session_description
         "Ignoring [Session_description] in unexpected state"
         ~guild_id:(t.guild_id : Model.Guild_id.t)
         (state : State.t)]
+;;
+
+let with_dave_session t f =
+  match t.state with
+  | Connected { state = Ready_to_send { dave_session; _ }; _ } -> f dave_session
+  | _ -> return ()
 ;;
 
 let handle_heartbeat_ack t =
@@ -399,31 +403,40 @@ and handle_event t (event : Model.Voice_gateway.Event.Receivable.t) =
     handle_heartbeat_ack t;
     return ()
   | Clients_connect clients_connect ->
-    Dave_session.on_clients_connect t.dave_session clients_connect;
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_clients_connect dave_session clients_connect;
     return ()
   | Client_disconnect client_disconnect ->
-    Dave_session.on_client_disconnect t.dave_session client_disconnect;
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_client_disconnect dave_session client_disconnect;
     return ()
   | Dave_protocol_prepare_transition prepare_transition ->
-    Dave_session.on_dave_protocol_prepare_transition t.dave_session prepare_transition;
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_dave_protocol_prepare_transition dave_session prepare_transition;
     return ()
   | Dave_protocol_execute_transition execute_transition ->
-    Dave_session.on_dave_protocol_execute_transition t.dave_session execute_transition;
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_dave_protocol_execute_transition dave_session execute_transition;
     return ()
   | Dave_protocol_prepare_epoch prepare_epoch ->
-    Dave_session.on_dave_protocol_prepare_epoch t.dave_session prepare_epoch;
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_dave_protocol_prepare_epoch dave_session prepare_epoch;
     return ()
   | Mls_external_sender_package external_sender ->
-    Dave_session.on_mls_external_sender_package t.dave_session external_sender;
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_mls_external_sender_package dave_session external_sender;
     return ()
   | Mls_proposals proposals ->
-    Dave_session.on_mls_proposals t.dave_session proposals;
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_mls_proposals dave_session proposals;
     return ()
   | Mls_announce_commit_transition prepare_commit ->
-    Dave_session.on_mls_announce_commit_transition t.dave_session prepare_commit;
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_mls_announce_commit_transition dave_session prepare_commit;
     return ()
   | Mls_welcome welcome ->
-    Dave_session.on_mls_welcome t.dave_session welcome;
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_mls_welcome dave_session welcome;
     return ()
   | Unknown event ->
     [%log.debug
@@ -457,22 +470,9 @@ and read_event t frame =
         (frame : Websocket.Frame_content.t)];
     return ()
 
-and forward_dave_outgoing t =
-  Pipe.iter (Dave_session.outgoing t.dave_session) ~f:(fun outgoing ->
-    match outgoing with
-    | Mls_key_package { key_package } ->
-      write_if_connected t (Mls_key_package { key_package })
-    | Dave_protocol_ready_for_transition { transition_id } ->
-      write_if_connected t (Dave_protocol_ready_for_transition { transition_id })
-    | Mls_commit_welcome { commit_welcome } ->
-      write_if_connected t (Mls_commit_welcome { commit_welcome })
-    | Mls_invalid_commit_welcome { transition_id } ->
-      write_if_connected t (Mls_invalid_commit_welcome { transition_id }))
-
 and handle_new_connection t state ws =
   t.state <- Connected (State.Connected.create ~time_source:t.time_source state ws);
   don't_wait_for (Pipe.iter (Websocket.reader ws) ~f:(read_event t));
-  don't_wait_for (forward_dave_outgoing t);
   don't_wait_for
     (let%bind reason, message, info = Websocket.close_finished ws in
      [%log.info

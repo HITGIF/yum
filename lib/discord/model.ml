@@ -95,6 +95,9 @@ module Uri = struct
 end
 
 module Ssrc = Intable_extended.Make ()
+module Dave_transition_id = Intable_extended.Make ()
+module Dave_epoch = Intable_extended.Make ()
+module Dave_protocol_version = Intable_extended.Make ()
 
 module Intents = struct
   include Intable_extended.Make ()
@@ -488,7 +491,7 @@ module Voice_gateway = struct
         ; user_id : User_id.t
         ; session_id : Voice_gateway_session_id.t
         ; token : Voice_connection_token.t
-        ; max_dave_protocol_version : int
+        ; max_dave_protocol_version : Dave_protocol_version.t
         }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
@@ -595,7 +598,7 @@ module Voice_gateway = struct
       type t =
         { mode : Tls_encryption_mode.t
         ; secret_key : int array
-        ; dave_protocol_version : int
+        ; dave_protocol_version : Dave_protocol_version.t
         }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
@@ -622,7 +625,7 @@ module Voice_gateway = struct
     end
 
     module Clients_connect = struct
-      type t = { user_ids : string list }
+      type t = { user_ids : User_id.t list }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let of_protocol_or_error event =
@@ -634,7 +637,7 @@ module Voice_gateway = struct
     end
 
     module Client_disconnect = struct
-      type t = { user_id : string }
+      type t = { user_id : User_id.t }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let of_protocol_or_error event =
@@ -647,8 +650,8 @@ module Voice_gateway = struct
 
     module Dave_protocol_prepare_transition = struct
       type t =
-        { transition_id : int
-        ; protocol_version : int
+        { transition_id : Dave_transition_id.t
+        ; protocol_version : Dave_protocol_version.t
         }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
@@ -661,7 +664,7 @@ module Voice_gateway = struct
     end
 
     module Dave_protocol_execute_transition = struct
-      type t = { transition_id : int }
+      type t = { transition_id : Dave_transition_id.t }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let of_protocol_or_error event =
@@ -673,7 +676,7 @@ module Voice_gateway = struct
     end
 
     module Dave_protocol_ready_for_transition = struct
-      type t = { transition_id : int }
+      type t = { transition_id : Dave_transition_id.t }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let to_protocol t =
@@ -686,8 +689,8 @@ module Voice_gateway = struct
 
     module Dave_protocol_prepare_epoch = struct
       type t =
-        { epoch : int
-        ; protocol_version : int
+        { epoch : Dave_epoch.t
+        ; protocol_version : Dave_protocol_version.t
         }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
@@ -743,7 +746,7 @@ module Voice_gateway = struct
 
     module Mls_announce_commit_transition = struct
       type t =
-        { transition_id : int
+        { transition_id : Dave_transition_id.t
         ; commit : string
         }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of]
@@ -753,7 +756,9 @@ module Voice_gateway = struct
           Websocket_protocol.Voice_gateway.Event.data_or_error event
         in
         let iobuf = Iobuf.of_string data in
-        let transition_id = Iobuf.Consume.uint16_be iobuf in
+        let transition_id =
+          Iobuf.Consume.uint16_be iobuf |> Dave_transition_id.of_int_exn
+        in
         let commit = Iobuf.Consume.stringo iobuf |> Base64.encode_string in
         { transition_id; commit }
       ;;
@@ -761,7 +766,7 @@ module Voice_gateway = struct
 
     module Mls_welcome = struct
       type t =
-        { transition_id : int
+        { transition_id : Dave_transition_id.t
         ; welcome : string
         }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of]
@@ -771,14 +776,16 @@ module Voice_gateway = struct
           Websocket_protocol.Voice_gateway.Event.data_or_error event
         in
         let iobuf = Iobuf.of_string data in
-        let transition_id = Iobuf.Consume.uint16_be iobuf in
+        let transition_id =
+          Iobuf.Consume.uint16_be iobuf |> Dave_transition_id.of_int_exn
+        in
         let welcome = Iobuf.Consume.stringo iobuf |> Base64.encode_string in
         { transition_id; welcome }
       ;;
     end
 
     module Mls_invalid_commit_welcome = struct
-      type t = { transition_id : int }
+      type t = { transition_id : Dave_transition_id.t }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let to_protocol t =

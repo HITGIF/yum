@@ -1,28 +1,20 @@
 open! Core
 open! Async
 
-(** Outgoing messages to be sent to the voice gateway *)
-module Outgoing : sig
-  type t =
-    | Mls_key_package of { key_package : string }
-    | Dave_protocol_ready_for_transition of { transition_id : int }
-    | Mls_commit_welcome of { commit_welcome : string }
-    | Mls_invalid_commit_welcome of { transition_id : int }
-  [@@deriving sexp_of]
-end
+val max_supported_protocol_version : Model.Dave_protocol_version.t
 
 type t
 
-val create : self_user_id:string -> group_id:int -> t
+val create
+  :  user_id:Model.User_id.t
+  -> channel_id:Model.Channel_id.t
+  -> t * Model.Voice_gateway.Event.Sendable.t Pipe.Reader.t
+
 val close : t -> unit
-
-(** Outgoing messages pipe - messages that should be sent to voice gateway *)
-val outgoing : t -> Outgoing.t Pipe.Reader.t
-
 val assign_ssrc_to_codec : t -> ssrc:Model.Ssrc.t -> codec:Dave.Codec.t -> unit
 val on_clients_connect : t -> Model.Voice_gateway.Event.Clients_connect.t -> unit
 val on_client_disconnect : t -> Model.Voice_gateway.Event.Client_disconnect.t -> unit
-val on_session_description : t -> dave_protocol_version:int -> unit
+val on_session_description : t -> Model.Dave_protocol_version.t -> unit
 
 val on_dave_protocol_prepare_transition
   :  t

@@ -2,59 +2,55 @@ open! Core
 open! Async
 
 (** DAVE protocol transition ID for initialization *)
-let init_transition_id = 0
+let init_transition_id = Model.Dave_transition_id.of_int_exn 0
 
 (** Expected epoch for new MLS group *)
-let mls_new_group_expected_epoch = 1
+let mls_new_group_expected_epoch = Model.Dave_epoch.of_int_exn 1
 
 (** Disabled protocol version *)
-let disabled_version = 0
+let disabled_version = Model.Dave_protocol_version.of_int_exn 0
 
-module Outgoing = struct
-  type t =
-    | Mls_key_package of { key_package : string }
-    | Dave_protocol_ready_for_transition of { transition_id : int }
-    | Mls_commit_welcome of { commit_welcome : string }
-    | Mls_invalid_commit_welcome of { transition_id : int }
-  [@@deriving sexp_of]
-end
+let max_supported_protocol_version =
+  Model.Dave_protocol_version.of_int_exn Dave.max_supported_protocol_version
+;;
 
 type t =
   { session : Dave.Session.t
-  ; self_user_id : string
-  ; group_id : int
-  ; recognized_user_ids : String.Hash_set.t
-  ; protocol_transitions : int Int.Table.t
-  ; outgoing_writer : Outgoing.t Pipe.Writer.t
-  ; outgoing_reader : Outgoing.t Pipe.Reader.t
+  ; user_id : Model.User_id.t
+  ; channel_id : Model.Channel_id.t
+  ; recognized_user_ids : Model.User_id.Hash_set.t
+  ; protocol_transitions : Model.Dave_protocol_version.t Model.Dave_transition_id.Table.t
+  ; mutable latest_prepared_transition_version : Model.Dave_protocol_version.t
+  ; events_writer : Model.Voice_gateway.Event.Sendable.t Pipe.Writer.t
   ; encryptor : Dave.Encryptor.t
   ; decryptor : Dave.Decryptor.t
   ; closed : unit Ivar.t
   }
 [@@deriving fields ~getters]
 
-let create ~self_user_id ~group_id =
+let create ~user_id ~channel_id =
   let on_error ~source ~reason =
     [%log.error [%here] "MLS failure" (source : string) (reason : string)]
   in
-  let outgoing_reader, outgoing_writer = Pipe.create () in
+  let events_reader, events_writer = Pipe.create () in
   let session = Dave.Session.create ~on_error in
   let encryptor = Dave.Encryptor.create () in
   let decryptor = Dave.Decryptor.create () in
   (* Start in passthrough mode until MLS handshake completes *)
   Dave.Encryptor.set_passthrough_mode encryptor true;
   Dave.Decryptor.set_passthrough_mode decryptor true;
-  { session
-  ; self_user_id
-  ; group_id
-  ; recognized_user_ids = String.Hash_set.create ()
-  ; protocol_transitions = Int.Table.create ()
-  ; outgoing_writer
-  ; outgoing_reader
-  ; encryptor
-  ; decryptor
-  ; closed = Ivar.create ()
-  }
+  ( { session
+    ; user_id
+    ; channel_id
+    ; recognized_user_ids = Model.User_id.Hash_set.create ()
+    ; protocol_transitions = Model.Dave_transition_id.Table.create ()
+    ; latest_prepared_transition_version = disabled_version
+    ; events_writer
+    ; encryptor
+    ; decryptor
+    ; closed = Ivar.create ()
+    }
+  , events_reader )
 ;;
 
 let run_if_not_closed' ~(here : [%call_pos]) t f ~default =
@@ -70,12 +66,12 @@ let run_if_not_closed ~(here : [%call_pos]) t f = run_if_not_closed' ~here t f ~
 
 let close
   ({ session
-   ; self_user_id = _
-   ; group_id = _
+   ; user_id = _
+   ; channel_id = _
    ; recognized_user_ids = _
    ; protocol_transitions = _
-   ; outgoing_writer
-   ; outgoing_reader = _
+   ; latest_prepared_transition_version = _
+   ; events_writer
    ; encryptor
    ; decryptor
    ; closed
@@ -86,21 +82,25 @@ let close
   Ivar.fill_if_empty closed ();
   Dave.Encryptor.destroy encryptor;
   Dave.Decryptor.destroy decryptor;
-  Dave.Session.destroy session;
-  Pipe.close outgoing_writer
+  Pipe.close events_writer;
+  Dave.Session.destroy session
 ;;
 
-let outgoing t = t.outgoing_reader
-let send_outgoing t msg = Pipe.write_without_pushback_if_open t.outgoing_writer msg
+let send_event t = Pipe.write_without_pushback_if_open t.events_writer
+
+let get_protocol_version t =
+  let%with () = run_if_not_closed' t ~default:disabled_version in
+  Dave.Session.get_protocol_version t.session |> Model.Dave_protocol_version.of_int_exn
+;;
 
 let setup_key_ratchet_for_user t ~user_id ~protocol_version =
   let%with () = run_if_not_closed t in
   let key_ratchet =
-    if protocol_version = disabled_version
+    if [%equal: Model.Dave_protocol_version.t] protocol_version disabled_version
     then None
-    else Some (Dave.Session.get_key_ratchet t.session user_id)
+    else Some (Dave.Session.get_key_ratchet t.session (Model.User_id.to_string user_id))
   in
-  if String.equal user_id t.self_user_id
+  if [%equal: Model.User_id.t] user_id t.user_id
   then (
     match key_ratchet with
     | None -> Dave.Encryptor.set_passthrough_mode t.encryptor true
@@ -120,22 +120,23 @@ let prepare_dave_protocol_ratchets t ~transition_id ~protocol_version =
   [%log.debug
     [%here]
       "Preparing DAVE protocol ratchets"
-      (transition_id : int)
-      (protocol_version : int)];
+      (transition_id : Model.Dave_transition_id.t)
+      (protocol_version : Model.Dave_protocol_version.t)];
   (* Setup key ratchets for all recognized users except self *)
   Hash_set.iter t.recognized_user_ids ~f:(fun user_id ->
-    if not (String.equal user_id t.self_user_id)
+    if not ([%equal: Model.User_id.t] user_id t.user_id)
     then setup_key_ratchet_for_user t ~user_id ~protocol_version);
   (* For init transition, also setup self immediately; otherwise defer to execute *)
-  if transition_id = init_transition_id
-  then setup_key_ratchet_for_user t ~user_id:t.self_user_id ~protocol_version
-  else Hashtbl.set t.protocol_transitions ~key:transition_id ~data:protocol_version
+  if [%equal: Model.Dave_transition_id.t] transition_id init_transition_id
+  then setup_key_ratchet_for_user t ~user_id:t.user_id ~protocol_version
+  else Hashtbl.set t.protocol_transitions ~key:transition_id ~data:protocol_version;
+  t.latest_prepared_transition_version <- protocol_version
 ;;
 
 let maybe_send_dave_protocol_ready_for_transition t ~transition_id =
   let%with () = run_if_not_closed t in
-  if transition_id <> init_transition_id
-  then send_outgoing t (Dave_protocol_ready_for_transition { transition_id })
+  if not ([%equal: Model.Dave_transition_id.t] transition_id init_transition_id)
+  then send_event t (Dave_protocol_ready_for_transition { transition_id })
 ;;
 
 let send_mls_key_package t =
@@ -146,45 +147,48 @@ let send_mls_key_package t =
     |> Dave.Uint8_data.to_string
     |> Base64.encode_string
   in
-  send_outgoing t (Mls_key_package { key_package })
+  send_event t (Mls_key_package { key_package })
 ;;
 
-let handle_dave_protocol_prepare_epoch t ~epoch ~protocol_version ~group_id =
+let handle_dave_protocol_prepare_epoch t ~epoch ~protocol_version =
   let%with () = run_if_not_closed t in
-  if epoch = mls_new_group_expected_epoch
+  if [%equal: Model.Dave_epoch.t] epoch mls_new_group_expected_epoch
   then
     Dave.Session.init
       t.session
-      ~version:protocol_version
-      ~group_id
-      ~self_user_id:t.self_user_id
+      ~version:(Model.Dave_protocol_version.to_int_exn protocol_version)
+      ~group_id:(Model.Channel_id.to_string t.channel_id |> Int.of_string)
+      ~self_user_id:(Model.User_id.to_string t.user_id)
 ;;
 
 let handle_dave_protocol_execute_transition t ~transition_id =
   let%with () = run_if_not_closed t in
-  [%log.debug [%here] "Executing transition" (transition_id : int)];
+  [%log.debug [%here] "Executing transition" (transition_id : Model.Dave_transition_id.t)];
   match Hashtbl.find_and_remove t.protocol_transitions transition_id with
   | None ->
     [%log.debug
-      [%here] "Ignoring execute transition for unknown transition" (transition_id : int)]
+      [%here]
+        "Ignoring execute transition for unknown transition"
+        (transition_id : Model.Dave_transition_id.t)]
   | Some protocol_version ->
     [%log.debug
       [%here]
         "Found transition, setting up self key ratchet"
-        (transition_id : int)
-        (protocol_version : int)];
-    if protocol_version = disabled_version then Dave.Session.reset t.session;
-    setup_key_ratchet_for_user t ~user_id:t.self_user_id ~protocol_version
+        (transition_id : Model.Dave_transition_id.t)
+        (protocol_version : Model.Dave_protocol_version.t)];
+    if [%equal: Model.Dave_protocol_version.t] protocol_version disabled_version
+    then Dave.Session.reset t.session;
+    setup_key_ratchet_for_user t ~user_id:t.user_id ~protocol_version
 ;;
 
 let flag_mls_invalid_commit_welcome t ~transition_id =
   let%with () = run_if_not_closed t in
-  send_outgoing t (Mls_invalid_commit_welcome { transition_id })
+  send_event t (Mls_invalid_commit_welcome { transition_id })
 ;;
 
 let handle_dave_protocol_init t ~protocol_version =
   let%with () = run_if_not_closed t in
-  if protocol_version = disabled_version
+  if [%equal: Model.Dave_protocol_version.t] protocol_version disabled_version
   then (
     prepare_dave_protocol_ratchets t ~transition_id:init_transition_id ~protocol_version;
     handle_dave_protocol_execute_transition t ~transition_id:init_transition_id)
@@ -192,8 +196,7 @@ let handle_dave_protocol_init t ~protocol_version =
     handle_dave_protocol_prepare_epoch
       t
       ~epoch:mls_new_group_expected_epoch
-      ~protocol_version
-      ~group_id:t.group_id;
+      ~protocol_version;
     send_mls_key_package t)
 ;;
 
@@ -201,16 +204,20 @@ let create_user t ~user_id =
   let%with () = run_if_not_closed t in
   Hash_set.add t.recognized_user_ids user_id;
   let num_users = Hash_set.length t.recognized_user_ids in
-  [%log.debug [%here] "Adding recognized user" (user_id : string) (num_users : int)];
-  let protocol_version = Dave.Session.get_protocol_version t.session in
-  setup_key_ratchet_for_user t ~user_id ~protocol_version
+  [%log.debug
+    [%here] "Adding recognized user" (user_id : Model.User_id.t) (num_users : int)];
+  setup_key_ratchet_for_user
+    t
+    ~user_id
+    ~protocol_version:t.latest_prepared_transition_version
 ;;
 
 let destroy_user t ~user_id =
   let%with () = run_if_not_closed t in
   Hash_set.remove t.recognized_user_ids user_id;
   let num_users = Hash_set.length t.recognized_user_ids in
-  [%log.debug [%here] "Removing recognized user" (user_id : string) (num_users : int)]
+  [%log.debug
+    [%here] "Removing recognized user" (user_id : Model.User_id.t) (num_users : int)]
 ;;
 
 let on_clients_connect t { Model.Voice_gateway.Event.Clients_connect.user_ids } =
@@ -223,7 +230,7 @@ let on_client_disconnect t { Model.Voice_gateway.Event.Client_disconnect.user_id
   destroy_user t ~user_id
 ;;
 
-let on_session_description t ~dave_protocol_version =
+let on_session_description t dave_protocol_version =
   let%with () = run_if_not_closed t in
   handle_dave_protocol_init t ~protocol_version:dave_protocol_version
 ;;
@@ -252,8 +259,9 @@ let on_dave_protocol_prepare_epoch
   { Model.Voice_gateway.Event.Dave_protocol_prepare_epoch.epoch; protocol_version }
   =
   let%with () = run_if_not_closed t in
-  handle_dave_protocol_prepare_epoch t ~epoch ~protocol_version ~group_id:t.group_id;
-  if epoch = mls_new_group_expected_epoch then send_mls_key_package t
+  handle_dave_protocol_prepare_epoch t ~epoch ~protocol_version;
+  if [%equal: Model.Dave_epoch.t] epoch mls_new_group_expected_epoch
+  then send_mls_key_package t
 ;;
 
 let on_mls_external_sender_package
@@ -269,8 +277,10 @@ let on_mls_external_sender_package
 let on_mls_proposals t { Model.Voice_gateway.Event.Mls_proposals.proposals } =
   let%with () = run_if_not_closed t in
   let commit_welcome =
-    let recognized_user_ids = Hash_set.to_list t.recognized_user_ids in
     let proposals = Base64.decode_exn proposals |> Dave.Uint8_data.of_string in
+    let recognized_user_ids =
+      Hash_set.to_list t.recognized_user_ids |> List.map ~f:Model.User_id.to_string
+    in
     Dave.Session.process_proposals t.session ~proposals ~recognized_user_ids
   in
   (* If process_proposals returns non-empty data, send commit_welcome *)
@@ -280,7 +290,7 @@ let on_mls_proposals t { Model.Voice_gateway.Event.Mls_proposals.proposals } =
   else (
     [%log.debug [%here] "Created commit_welcome"];
     let commit_welcome = Base64.encode_string commit_welcome in
-    send_outgoing t (Mls_commit_welcome { commit_welcome }))
+    send_event t (Mls_commit_welcome { commit_welcome }))
 ;;
 
 let on_mls_announce_commit_transition
@@ -288,18 +298,23 @@ let on_mls_announce_commit_transition
   { Model.Voice_gateway.Event.Mls_announce_commit_transition.transition_id; commit }
   =
   let%with () = run_if_not_closed t in
-  [%log.debug [%here] "Received MLS prepare commit transition" (transition_id : int)];
+  [%log.debug
+    [%here]
+      "Received MLS prepare commit transition"
+      (transition_id : Model.Dave_transition_id.t)];
   let commit_data = Base64.decode_exn commit |> Dave.Uint8_data.of_string in
   let commit_result = Dave.Session.process_commit t.session commit_data in
-  let protocol_version = Dave.Session.get_protocol_version t.session in
+  let protocol_version = get_protocol_version t in
   let is_ignored = Dave.Commit_result.is_ignored commit_result in
   let is_failed = Dave.Commit_result.is_failed commit_result in
   [%log.debug [%here] "process_commit returned" (is_ignored : bool) (is_failed : bool)];
   if is_ignored
-  then [%log.debug [%here] "MLS commit was ignored" (transition_id : int)]
+  then
+    [%log.debug
+      [%here] "MLS commit was ignored" (transition_id : Model.Dave_transition_id.t)]
   else if is_failed
   then (
-    [%log.error [%here] "MLS commit failed" (transition_id : int)];
+    [%log.error [%here] "MLS commit failed" (transition_id : Model.Dave_transition_id.t)];
     flag_mls_invalid_commit_welcome t ~transition_id;
     handle_dave_protocol_init t ~protocol_version)
   else (
@@ -310,9 +325,15 @@ let on_mls_announce_commit_transition
 
 let on_mls_welcome t { Model.Voice_gateway.Event.Mls_welcome.transition_id; welcome } =
   let%with () = run_if_not_closed t in
-  let recognized_user_ids = Hash_set.to_list t.recognized_user_ids in
+  let recognized_user_ids =
+    Hash_set.to_list t.recognized_user_ids |> List.map ~f:Model.User_id.to_string
+  in
   let num_users = List.length recognized_user_ids in
-  [%log.debug [%here] "Received MLS welcome" (transition_id : int) (num_users : int)];
+  [%log.debug
+    [%here]
+      "Received MLS welcome"
+      (transition_id : Model.Dave_transition_id.t)
+      (num_users : int)];
   let welcome_result =
     let welcome_data = Base64.decode_exn welcome |> Dave.Uint8_data.of_string in
     Dave.Session.process_welcome t.session welcome_data ~recognized_user_ids
@@ -327,19 +348,24 @@ let on_mls_welcome t { Model.Voice_gateway.Event.Mls_welcome.transition_id; welc
   [%log.debug
     [%here]
       "process_welcome result"
-      (transition_id : int)
+      (transition_id : Model.Dave_transition_id.t)
       (roster_count : int)
       (joined_group : bool)];
   if joined_group
   then (
-    let protocol_version = Dave.Session.get_protocol_version t.session in
-    [%log.debug [%here] "Successfully joined group via welcome" (protocol_version : int)];
+    let protocol_version = get_protocol_version t in
+    [%log.debug
+      [%here]
+        "Successfully joined group via welcome"
+        (protocol_version : Model.Dave_protocol_version.t)];
     prepare_dave_protocol_ratchets t ~transition_id ~protocol_version;
     maybe_send_dave_protocol_ready_for_transition t ~transition_id)
   else (
     (* Welcome didn't result in joining group - flag invalid and send new key package *)
     [%log.debug
-      [%here] "MLS welcome didn't result in joining group" (transition_id : int)];
+      [%here]
+        "MLS welcome didn't result in joining group"
+        (transition_id : Model.Dave_transition_id.t)];
     flag_mls_invalid_commit_welcome t ~transition_id;
     send_mls_key_package t);
   Dave.Welcome_result.destroy welcome_result

@@ -23,6 +23,9 @@ module Uri : sig
 end
 
 module Ssrc : Intable_extended.S
+module Dave_transition_id : Intable_extended.S
+module Dave_epoch : Intable_extended.S
+module Dave_protocol_version : Intable_extended.S
 
 module Intents : sig
   (** https://discord.com/developers/docs/topics/gateway#gateway-intents *)
@@ -283,7 +286,7 @@ module Voice_gateway : sig
         ; user_id : User_id.t
         ; session_id : Voice_gateway_session_id.t
         ; token : Voice_connection_token.t
-        ; max_dave_protocol_version : int
+        ; max_dave_protocol_version : Dave_protocol_version.t
         }
       [@@deriving sexp_of]
     end
@@ -345,7 +348,7 @@ module Voice_gateway : sig
       type t =
         { mode : Tls_encryption_mode.t
         ; secret_key : int array
-        ; dave_protocol_version : int
+        ; dave_protocol_version : Dave_protocol_version.t
         }
       [@@deriving sexp_of]
     end
@@ -360,34 +363,34 @@ module Voice_gateway : sig
 
     module Dave_protocol_prepare_transition : sig
       type t =
-        { transition_id : int
-        ; protocol_version : int
+        { transition_id : Dave_transition_id.t
+        ; protocol_version : Dave_protocol_version.t
         }
       [@@deriving sexp_of]
     end
 
     module Dave_protocol_execute_transition : sig
-      type t = { transition_id : int } [@@deriving sexp_of]
+      type t = { transition_id : Dave_transition_id.t } [@@deriving sexp_of]
     end
 
     module Dave_protocol_ready_for_transition : sig
-      type t = { transition_id : int } [@@deriving sexp_of]
+      type t = { transition_id : Dave_transition_id.t } [@@deriving sexp_of]
     end
 
     module Dave_protocol_prepare_epoch : sig
       type t =
-        { epoch : int
-        ; protocol_version : int
+        { epoch : Dave_epoch.t
+        ; protocol_version : Dave_protocol_version.t
         }
       [@@deriving sexp_of]
     end
 
     module Clients_connect : sig
-      type t = { user_ids : string list } [@@deriving sexp_of]
+      type t = { user_ids : User_id.t list } [@@deriving sexp_of]
     end
 
     module Client_disconnect : sig
-      type t = { user_id : string } [@@deriving sexp_of]
+      type t = { user_id : User_id.t } [@@deriving sexp_of]
     end
 
     module Mls_external_sender_package : sig
@@ -408,7 +411,7 @@ module Voice_gateway : sig
 
     module Mls_announce_commit_transition : sig
       type t =
-        { transition_id : int
+        { transition_id : Dave_transition_id.t
         ; commit : string
         }
       [@@deriving sexp_of]
@@ -416,14 +419,14 @@ module Voice_gateway : sig
 
     module Mls_welcome : sig
       type t =
-        { transition_id : int
+        { transition_id : Dave_transition_id.t
         ; welcome : string
         }
       [@@deriving sexp_of]
     end
 
     module Mls_invalid_commit_welcome : sig
-      type t = { transition_id : int } [@@deriving sexp_of]
+      type t = { transition_id : Dave_transition_id.t } [@@deriving sexp_of]
     end
 
     module Receivable : sig
