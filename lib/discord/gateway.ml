@@ -64,7 +64,7 @@ module State = struct
       ; mutable last_heartbeat_acked : bool
       ; heartbeating : unit Set_once.t
       ; created_at : Time_ns.t
-      ; ws : (string Websocket.t[@sexp.opaque])
+      ; ws : (Websocket.Frame_content.t Websocket.t[@sexp.opaque])
       }
     [@@deriving sexp_of]
 
@@ -139,10 +139,8 @@ let rec write_upon_connected' t get_event =
     let event = get_event connected in
     (match%map
        Deferred.Or_error.try_with_join (fun () ->
-         event
-         |> Model.Gateway.Event.Sendable.to_protocol
-         |> [%yojson_of: Websocket_protocol.Gateway.Event.t]
-         |> Json.to_string
+         Model.Gateway.Event.Sendable.to_protocol event
+         |> Websocket_protocol.Gateway.Event.to_frame_content
          |> Pipe.write_if_open (Websocket.writer connected.ws)
          |> Deferred.ok)
      with
@@ -579,11 +577,11 @@ and handle_event t (event : Model.Gateway.Event.Receivable.t) =
       [%here] "Received unknown event" (event : Websocket_protocol.Gateway.Event.t)];
     return ()
 
-and read_event t payload =
+and read_event t frame =
   match
     Or_error.try_with_join (fun () ->
-      let protocol =
-        Json.from_string payload |> [%of_yojson: Websocket_protocol.Gateway.Event.t]
+      let%bind.Or_error protocol =
+        Websocket_protocol.Gateway.Event.of_frame_content_or_error frame
       in
       (match Websocket_protocol.Gateway.Event.seq_num protocol, t.state with
        | None, _ | _, Disconnected _ -> ()
@@ -595,7 +593,11 @@ and read_event t payload =
     let%bind () = handle_event t event in
     return ()
   | Error error ->
-    [%log.error [%here] "Failed to receive event" (payload : string) (error : Error.t)];
+    [%log.debug
+      [%here]
+        "Failed to receive event"
+        (error : Error.t)
+        (frame : Websocket.Frame_content.t)];
     return ()
 
 and handle_new_connection ~disconnected:{ State.Disconnected.connected } t state ws =
@@ -640,7 +642,7 @@ and resume t =
     let%bind disconnected = disconnect t in
     [%log.info [%here] "Resuming..."];
     (match%bind
-       Cohttp_async_websocket.Client.create (formulate_url resume_gateway_url)
+       Cohttp_async_websocket.Client.create' (formulate_url resume_gateway_url)
      with
      | Ok (response, ws) ->
        [%log.info [%here] "Reconnected"];
@@ -664,7 +666,7 @@ and connect t =
   | Disconnected disconnected ->
     [%log.info [%here] "Connecting..."];
     let%bind.Deferred.Or_error response, ws =
-      Cohttp_async_websocket.Client.create (formulate_url t.initial_gateway_url)
+      Cohttp_async_websocket.Client.create' (formulate_url t.initial_gateway_url)
     in
     [%log.info [%here] "Connected"];
     [%log.debug [%here] (response : Cohttp.Response.t)];

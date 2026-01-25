@@ -406,7 +406,7 @@ module Voice_gateway : sig
       type t = { commit_welcome : string } [@@deriving sexp_of]
     end
 
-    module Mls_prepare_commit_transition : sig
+    module Mls_announce_commit_transition : sig
       type t =
         { transition_id : int
         ; commit : string
@@ -439,7 +439,7 @@ module Voice_gateway : sig
         | Dave_protocol_prepare_epoch of Dave_protocol_prepare_epoch.t
         | Mls_external_sender_package of Mls_external_sender_package.t
         | Mls_proposals of Mls_proposals.t
-        | Mls_prepare_commit_transition of Mls_prepare_commit_transition.t
+        | Mls_announce_commit_transition of Mls_announce_commit_transition.t
         | Mls_welcome of Mls_welcome.t
         | Unknown of Websocket_protocol.Voice_gateway.Event.t
       [@@deriving sexp_of]

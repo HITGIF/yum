@@ -45,9 +45,9 @@ val on_mls_external_sender_package
 
 val on_mls_proposals : t -> Model.Voice_gateway.Event.Mls_proposals.t -> unit
 
-val on_mls_prepare_commit_transition
+val on_mls_announce_commit_transition
   :  t
-  -> Model.Voice_gateway.Event.Mls_prepare_commit_transition.t
+  -> Model.Voice_gateway.Event.Mls_announce_commit_transition.t
   -> unit
 
 val on_mls_welcome : t -> Model.Voice_gateway.Event.Mls_welcome.t -> unit

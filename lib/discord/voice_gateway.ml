@@ -113,46 +113,6 @@ let create
 let events t = t.events_reader
 let emit t event = Pipe.write_without_pushback_if_open t.events_writer event
 
-(* Serialize event to Frame_content.t with appropriate opcode.
-   Binary MLS messages (opcodes 26, 28) use Binary frames.
-   All other (JSON) messages use Text frames. *)
-let serialize_event event : Websocket.Frame_content.t =
-  match event with
-  | Model.Voice_gateway.Event.Sendable.Mls_key_package { key_package } ->
-    (* Binary opcode 26: dave_mls_key_package *)
-    let payload = Base64.decode_exn key_package in
-    let buf = Bytes.create (1 + String.length payload) in
-    Bytes.set buf 0 (Char.of_int_exn 26);
-    Bytes.From_string.blit
-      ~src:payload
-      ~src_pos:0
-      ~dst:buf
-      ~dst_pos:1
-      ~len:(String.length payload);
-    { opcode = Binary; content = Bytes.to_string buf }
-  | Mls_commit_welcome { commit_welcome } ->
-    (* Binary opcode 28: dave_mls_commit_welcome *)
-    let payload = Base64.decode_exn commit_welcome in
-    let buf = Bytes.create (1 + String.length payload) in
-    Bytes.set buf 0 (Char.of_int_exn 28);
-    Bytes.From_string.blit
-      ~src:payload
-      ~src_pos:0
-      ~dst:buf
-      ~dst_pos:1
-      ~len:(String.length payload);
-    { opcode = Binary; content = Bytes.to_string buf }
-  | _ ->
-    (* JSON for all other events - use Text frame *)
-    let content =
-      event
-      |> Model.Voice_gateway.Event.Sendable.to_protocol
-      |> [%yojson_of: Websocket_protocol.Voice_gateway.Event.t]
-      |> Json.to_string
-    in
-    { opcode = Text; content }
-;;
-
 let write_if_connected t event =
   match t.state with
   | Disconnected ->
@@ -163,10 +123,12 @@ let write_if_connected t event =
         (event : Model.Voice_gateway.Event.Sendable.t)];
     return ()
   | Connected connected ->
-    let frame = serialize_event event in
     (match%map
        Deferred.Or_error.try_with_join (fun () ->
-         frame |> Pipe.write_if_open (Websocket.writer connected.ws) |> Deferred.ok)
+         Model.Voice_gateway.Event.Sendable.to_protocol event
+         |> Websocket_protocol.Voice_gateway.Event.to_frame_content
+         |> Pipe.write_if_open (Websocket.writer connected.ws)
+         |> Deferred.ok)
      with
      | Ok () ->
        [%log.debug
@@ -450,8 +412,8 @@ and handle_event t (event : Model.Voice_gateway.Event.Receivable.t) =
   | Mls_proposals proposals ->
     Dave_session.on_mls_proposals t.dave_session proposals;
     return ()
-  | Mls_prepare_commit_transition prepare_commit ->
-    Dave_session.on_mls_prepare_commit_transition t.dave_session prepare_commit;
+  | Mls_announce_commit_transition prepare_commit ->
+    Dave_session.on_mls_announce_commit_transition t.dave_session prepare_commit;
     return ()
   | Mls_welcome welcome ->
     Dave_session.on_mls_welcome t.dave_session welcome;
@@ -461,98 +423,32 @@ and handle_event t (event : Model.Voice_gateway.Event.Receivable.t) =
       [%here] "Received unknown event" (event : Websocket_protocol.Voice_gateway.Event.t)];
     return ()
 
-(* Parse binary DAVE MLS messages. Binary format:
-   - uint16: sequence number (big-endian)
-   - uint8: opcode
-   - rest: payload
-   Binary opcodes: 25 (external_sender), 27 (proposals), 29 (announce_commit), 30 (welcome) *)
-and parse_binary_mls_event payload =
-  let len = String.length payload in
-  if len < 3
-  then None
-  else (
-    let opcode = Char.to_int (String.get payload 2) in
-    match opcode with
-    | 25 ->
-      (* dave_mls_external_sender_package *)
-      let binary_data = String.sub payload ~pos:3 ~len:(len - 3) in
-      Some
-        (Model.Voice_gateway.Event.Receivable.Mls_external_sender_package
-           { external_sender_package = Base64.encode_string binary_data })
-    | 27 ->
-      (* dave_mls_proposals - extract everything after seq_num (2) + opcode (1) = 3 bytes
-         The C++ library expects operation_type byte at the start of the proposals data *)
-      let binary_data = String.sub payload ~pos:3 ~len:(len - 3) in
-      Some
-        (Model.Voice_gateway.Event.Receivable.Mls_proposals
-           { proposals = Base64.encode_string binary_data })
-    | 29 ->
-      (* dave_mls_announce_commit_transition - format: uint16 transition_id, then commit *)
-      if len < 5
-      then None
-      else (
-        let transition_id =
-          (Char.to_int (String.get payload 3) lsl 8) + Char.to_int (String.get payload 4)
-        in
-        let commit_data = String.sub payload ~pos:5 ~len:(len - 5) in
-        Some
-          (Model.Voice_gateway.Event.Receivable.Mls_prepare_commit_transition
-             { transition_id; commit = Base64.encode_string commit_data }))
-    | 30 ->
-      (* dave_mls_welcome - format: uint16 transition_id, then welcome *)
-      if len < 5
-      then None
-      else (
-        let transition_id =
-          (Char.to_int (String.get payload 3) lsl 8) + Char.to_int (String.get payload 4)
-        in
-        let welcome_data = String.sub payload ~pos:5 ~len:(len - 5) in
-        Some
-          (Model.Voice_gateway.Event.Receivable.Mls_welcome
-             { transition_id; welcome = Base64.encode_string welcome_data }))
-    | _ -> None)
-
-and read_event t (frame : Websocket.Frame_content.t) =
-  let payload = frame.content in
-  (* First try to parse as binary MLS message *)
-  match parse_binary_mls_event payload with
-  | Some event ->
+and read_event t frame =
+  match
+    let%bind.Or_error protocol =
+      Websocket_protocol.Voice_gateway.Event.of_frame_content_or_error frame
+    in
+    (match Websocket_protocol.Voice_gateway.Event.seq_num protocol, t.state with
+     | None, _ | _, Disconnected -> ()
+     | Some seq_num, Connected connected -> connected.last_seq_num <- Some seq_num);
+    Model.Voice_gateway.Event.Receivable.of_protocol_or_error protocol
+  with
+  | Ok event ->
     [%log.debug
       [%here]
-        "Received binary MLS"
+        "Received"
         ~guild_id:(t.guild_id : Model.Guild_id.t)
         (event : Model.Voice_gateway.Event.Receivable.t)];
     let%bind () = handle_event t event in
     return ()
-  | None ->
-    (* Fall back to JSON parsing *)
-    (match
-       let%bind.Or_error protocol =
-         Or_error.try_with (fun () ->
-           Json.from_string payload
-           |> [%of_yojson: Websocket_protocol.Voice_gateway.Event.t])
-       in
-       (match Websocket_protocol.Voice_gateway.Event.seq_num protocol, t.state with
-        | None, _ | _, Disconnected -> ()
-        | Some seq_num, Connected connected -> connected.last_seq_num <- Some seq_num);
-       Model.Voice_gateway.Event.Receivable.of_protocol_or_error protocol
-     with
-     | Ok event ->
-       [%log.debug
-         [%here]
-           "Received"
-           ~guild_id:(t.guild_id : Model.Guild_id.t)
-           (event : Model.Voice_gateway.Event.Receivable.t)];
-       let%bind () = handle_event t event in
-       return ()
-     | Error error ->
-       [%log.error
-         [%here]
-           "Failed to receive event"
-           ~guild_id:(t.guild_id : Model.Guild_id.t)
-           (payload : string)
-           (error : Error.t)];
-       return ())
+  | Error error ->
+    [%log.debug
+      [%here]
+        "Failed to receive event"
+        ~guild_id:(t.guild_id : Model.Guild_id.t)
+        (error : Error.t)
+        (frame : Websocket.Frame_content.t)];
+    return ()
 
 and forward_dave_outgoing t =
   Pipe.iter (Dave_session.outgoing t.dave_session) ~f:(fun outgoing ->

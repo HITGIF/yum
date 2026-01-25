@@ -283,9 +283,9 @@ let on_mls_proposals t { Model.Voice_gateway.Event.Mls_proposals.proposals } =
     send_outgoing t (Mls_commit_welcome { commit_welcome }))
 ;;
 
-let on_mls_prepare_commit_transition
+let on_mls_announce_commit_transition
   t
-  { Model.Voice_gateway.Event.Mls_prepare_commit_transition.transition_id; commit }
+  { Model.Voice_gateway.Event.Mls_announce_commit_transition.transition_id; commit }
   =
   let%with () = run_if_not_closed t in
   [%log.debug [%here] "Received MLS prepare commit transition" (transition_id : int)];
