@@ -155,6 +155,24 @@ let handle_events ~state ~gateway event =
       ~frames_writer:(Some frames_writer)
     |> ignore;
     return ()
+  | Interaction { id; token; guild_id; custom_id; component_type = _ } ->
+    (match custom_id with
+     | "skip" ->
+       (match State.player state ~guild_id with
+        | None -> return ()
+        | Some player ->
+          let%bind () =
+            Discord.Http.Respond_interaction.call
+              ~auth_token:state.auth_token
+              ~interation_id:id
+              ~interaction_token:token
+              { type_ = Some Channel_message_with_source
+              ; data = Some { content = Some "Skipped :yum:" }
+              }
+            |> Deferred.ignore_m
+          in
+          Player.skip player |> return)
+     | _ -> return ())
   | Message
       { id = message_id
       ; guild_id

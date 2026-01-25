@@ -4,6 +4,13 @@ open! Async
 module Event : sig
   type t =
     | Message of Model.Message.t
+    | Interaction of
+        { id : Model.Interaction_id.t
+        ; token : Model.Interaction_token.t
+        ; guild_id : Model.Guild_id.t
+        ; custom_id : string
+        ; component_type : int
+        }
     | Voice_connected of { guild_id : Model.Guild_id.t }
     | Voice of
         { guild_id : Model.Guild_id.t

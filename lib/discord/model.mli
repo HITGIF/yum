@@ -11,6 +11,8 @@ module Gateway_session_id : String_id.S
 module Voice_gateway_session_id : String_id.S
 module User_id : String_id.S
 module Voice_connection_token : String_id.S
+module Interaction_id : String_id.S
+module Interaction_token : String_id.S
 
 module Uri : sig
   include module type of Uri
@@ -188,6 +190,25 @@ module Gateway : sig
         [@@deriving sexp_of]
       end
 
+      module Interaction_create : sig
+        module Data : sig
+          type t =
+            { custom_id : string
+            ; component_type : int
+            }
+          [@@deriving sexp_of]
+        end
+
+        type t =
+          { id : Interaction_id.t
+          ; token : Interaction_token.t
+          ; guild_id : Guild_id.t
+          ; user_id : User_id.t
+          ; data : Data.t
+          }
+        [@@deriving sexp_of]
+      end
+
       type t =
         | Ready of Ready.t
         (** https://discord.com/developers/docs/events/gateway-events#ready *)
@@ -200,6 +221,7 @@ module Gateway : sig
         (** https://discord.com/developers/docs/events/gateway-events#voice-state-update *)
         | Voice_server_update of Voice_server_update.t
         (** https://discord.com/developers/docs/events/gateway-events#voice-server-update *)
+        | Interaction_create of Interaction_create.t
         | Unknown of
             { name : string
             ; data : Json.t

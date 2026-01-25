@@ -59,3 +59,31 @@ module Create_message : sig
     -> Request.t
     -> Json.t Response.t Deferred.t
 end
+
+module Respond_interaction : sig
+  module Type : sig
+    type t =
+      | Pong
+      | Channel_message_with_source
+    [@@deriving sexp_of]
+  end
+
+  module Data : sig
+    type t = { content : string option } [@@deriving sexp_of]
+  end
+
+  module Request : sig
+    type t =
+      { type_ : Type.t option
+      ; data : Data.t option
+      }
+    [@@deriving sexp_of]
+  end
+
+  val call
+    :  auth_token:Model.Auth_token.t
+    -> interation_id:Model.Interaction_id.t
+    -> interaction_token:Model.Interaction_token.t
+    -> Request.t
+    -> Json.t Response.t Deferred.t
+end

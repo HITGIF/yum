@@ -173,6 +173,47 @@ module Create_message = struct
   ;;
 end
 
+module Respond_interaction = struct
+  module Type = struct
+    type t =
+      | Pong
+      | Channel_message_with_source
+    [@@deriving sexp_of, yojson_of]
+
+    let to_int = function
+      | Pong -> 1
+      | Channel_message_with_source -> 4
+    ;;
+
+    let yojson_of_t t = t |> to_int |> [%yojson_of: int]
+  end
+
+  module Data = struct
+    type t = { content : string option [@default None] } [@@deriving sexp_of, yojson_of]
+  end
+
+  module Request = struct
+    type t =
+      { type_ : Type.t option [@default None] [@key "type"]
+      ; data : Data.t option [@default None]
+      }
+    [@@deriving sexp_of, yojson_of]
+  end
+
+  let call ~auth_token ~interation_id ~interaction_token request =
+    call
+      (module Json)
+      `POST
+      ~body:([%yojson_of: Request.t] request)
+      ~auth_token
+      [ "interactions"
+      ; Model.Interaction_id.to_string interation_id
+      ; Model.Interaction_token.to_string interaction_token
+      ; "callback"
+      ]
+  ;;
+end
+
 module%test _ = struct
   let%expect_test "headers" =
     print_s

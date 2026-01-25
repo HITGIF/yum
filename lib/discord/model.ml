@@ -83,6 +83,20 @@ module Voice_connection_token =
     end)
     ()
 
+module Interaction_id =
+  Make_string_id
+    (struct
+      let module_name = [%module_name]
+    end)
+    ()
+
+module Interaction_token =
+  Make_string_id
+    (struct
+      let module_name = [%module_name]
+    end)
+    ()
+
 module Uri = struct
   include Uri
 
@@ -341,6 +355,25 @@ module Gateway = struct
         [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
       end
 
+      module Interaction_create = struct
+        module Data = struct
+          type t =
+            { custom_id : string
+            ; component_type : int
+            }
+          [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+        end
+
+        type t =
+          { id : Interaction_id.t
+          ; token : Interaction_token.t
+          ; guild_id : Guild_id.t
+          ; user_id : User_id.t [@key "application_id"]
+          ; data : Data.t
+          }
+        [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+      end
+
       type t =
         | Ready of Ready.t
         | Resumed
@@ -348,6 +381,7 @@ module Gateway = struct
         | Message_create of Message.t
         | Voice_state_update of Voice_state.t
         | Voice_server_update of Voice_server_update.t
+        | Interaction_create of Interaction_create.t
         | Unknown of
             { name : string
             ; data : Json.t
