@@ -143,9 +143,7 @@ let send_mls_key_package t =
   let%with () = run_if_not_closed t in
   [%log.debug [%here] "Sending MLS key package"];
   let key_package =
-    Dave.Session.get_marshalled_key_package t.session
-    |> Dave.Uint8_data.to_string
-    |> Base64.encode_string
+    Dave.Session.get_marshalled_key_package t.session |> Dave.Uint8_data.to_string
   in
   send_event t (Mls_key_package { key_package })
 ;;
@@ -270,14 +268,14 @@ let on_mls_external_sender_package
   =
   let%with () = run_if_not_closed t in
   [%log.debug [%here] "Received MLS external sender package"];
-  let data = Base64.decode_exn external_sender_package |> Dave.Uint8_data.of_string in
+  let data = Dave.Uint8_data.of_string external_sender_package in
   Dave.Session.set_external_sender t.session data
 ;;
 
 let on_mls_proposals t { Model.Voice_gateway.Event.Mls_proposals.proposals } =
   let%with () = run_if_not_closed t in
   let commit_welcome =
-    let proposals = Base64.decode_exn proposals |> Dave.Uint8_data.of_string in
+    let proposals = Dave.Uint8_data.of_string proposals in
     let recognized_user_ids =
       Hash_set.to_list t.recognized_user_ids |> List.map ~f:Model.User_id.to_string
     in
@@ -289,7 +287,6 @@ let on_mls_proposals t { Model.Voice_gateway.Event.Mls_proposals.proposals } =
   then [%log.debug [%here] "process_proposals returned empty, no commit created"]
   else (
     [%log.debug [%here] "Created commit_welcome"];
-    let commit_welcome = Base64.encode_string commit_welcome in
     send_event t (Mls_commit_welcome { commit_welcome }))
 ;;
 
@@ -302,7 +299,7 @@ let on_mls_announce_commit_transition
     [%here]
       "Received MLS prepare commit transition"
       (transition_id : Model.Dave_transition_id.t)];
-  let commit_data = Base64.decode_exn commit |> Dave.Uint8_data.of_string in
+  let commit_data = Dave.Uint8_data.of_string commit in
   let commit_result = Dave.Session.process_commit t.session commit_data in
   let protocol_version = get_protocol_version t in
   let is_ignored = Dave.Commit_result.is_ignored commit_result in
@@ -335,7 +332,7 @@ let on_mls_welcome t { Model.Voice_gateway.Event.Mls_welcome.transition_id; welc
       (transition_id : Model.Dave_transition_id.t)
       (num_users : int)];
   let welcome_result =
-    let welcome_data = Base64.decode_exn welcome |> Dave.Uint8_data.of_string in
+    let welcome_data = Dave.Uint8_data.of_string welcome in
     Dave.Session.process_welcome t.session welcome_data ~recognized_user_ids
   in
   (* Check if we joined the group by looking at roster member IDs *)

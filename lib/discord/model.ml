@@ -703,43 +703,43 @@ module Voice_gateway = struct
     end
 
     module Mls_external_sender_package = struct
-      type t = { external_sender_package : string }
+      type t = { external_sender_package : (string[@sexp.opaque]) }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of]
 
       let of_protocol_or_error event =
-        let%map.Or_error data =
+        let%map.Or_error external_sender_package =
           Websocket_protocol.Voice_gateway.Event.data_or_error event
         in
-        { external_sender_package = Base64.encode_string data }
+        { external_sender_package }
       ;;
     end
 
     module Mls_key_package = struct
-      type t = { key_package : string } [@@yojson.allow_extra_fields] [@@deriving sexp_of]
+      type t = { key_package : (string[@sexp.opaque]) }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of]
 
-      let to_protocol { key_package } =
-        let data = Base64.decode_exn key_package in
+      let to_protocol { key_package = data } =
         Websocket_protocol.Voice_gateway.Event.create ~data Mls_key_package
       ;;
     end
 
     module Mls_proposals = struct
-      type t = { proposals : string } [@@yojson.allow_extra_fields] [@@deriving sexp_of]
+      type t = { proposals : (string[@sexp.opaque]) }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of]
 
       let of_protocol_or_error event =
-        let%map.Or_error data =
+        let%map.Or_error proposals =
           Websocket_protocol.Voice_gateway.Event.data_or_error event
         in
-        { proposals = Base64.encode_string data }
+        { proposals }
       ;;
     end
 
     module Mls_commit_welcome = struct
-      type t = { commit_welcome : string }
+      type t = { commit_welcome : (string[@sexp.opaque]) }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of]
 
-      let to_protocol { commit_welcome } =
-        let data = Base64.decode_exn commit_welcome in
+      let to_protocol { commit_welcome = data } =
         Websocket_protocol.Voice_gateway.Event.create ~data Mls_commit_welcome
       ;;
     end
@@ -747,7 +747,7 @@ module Voice_gateway = struct
     module Mls_announce_commit_transition = struct
       type t =
         { transition_id : Dave_transition_id.t
-        ; commit : string
+        ; commit : (string[@sexp.opaque])
         }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of]
 
@@ -759,7 +759,7 @@ module Voice_gateway = struct
         let transition_id =
           Iobuf.Consume.uint16_be iobuf |> Dave_transition_id.of_int_exn
         in
-        let commit = Iobuf.Consume.stringo iobuf |> Base64.encode_string in
+        let commit = Iobuf.Consume.stringo iobuf in
         { transition_id; commit }
       ;;
     end
@@ -767,7 +767,7 @@ module Voice_gateway = struct
     module Mls_welcome = struct
       type t =
         { transition_id : Dave_transition_id.t
-        ; welcome : string
+        ; welcome : (string[@sexp.opaque])
         }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of]
 
@@ -779,7 +779,7 @@ module Voice_gateway = struct
         let transition_id =
           Iobuf.Consume.uint16_be iobuf |> Dave_transition_id.of_int_exn
         in
-        let welcome = Iobuf.Consume.stringo iobuf |> Base64.encode_string in
+        let welcome = Iobuf.Consume.stringo iobuf in
         { transition_id; welcome }
       ;;
     end
