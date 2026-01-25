@@ -28,7 +28,7 @@ type t =
   }
 [@@deriving fields ~getters]
 
-let create ~user_id ~channel_id =
+let create ~user_id ~channel_id ~users_in_channel =
   let on_error ~source ~reason =
     [%log.error [%here] "MLS Session Error" (source : string) (reason : string)]
   in
@@ -42,7 +42,7 @@ let create ~user_id ~channel_id =
   ( { session
     ; user_id
     ; channel_id
-    ; recognized_user_ids = Model.User_id.Hash_set.create ()
+    ; recognized_user_ids = Model.User_id.Hash_set.of_list (user_id :: users_in_channel)
     ; protocol_transitions = Model.Dave_transition_id.Table.create ()
     ; latest_prepared_transition_version = disabled_version
     ; events_writer

@@ -414,6 +414,9 @@ and update_voice_gateway t ~guild_id ~force_reconnect =
               (channel_id : Model.Channel_id.t)];
           join_voice t ~guild_id ~channel_id
       in
+      let get_users_in_channel () =
+        Hashtbl.find voice_states guild_id |> Option.value_map ~f:Hashtbl.keys ~default:[]
+      in
       let voice_gateway =
         Voice_gateway.create
           ~time_source:t.time_source
@@ -424,6 +427,7 @@ and update_voice_gateway t ~guild_id ~force_reconnect =
           ~session_id
           ~user_id
           ~reincarnate
+          ~get_users_in_channel
           ()
       in
       match%map Voice_gateway.connect voice_gateway with

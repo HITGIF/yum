@@ -16,6 +16,7 @@ type t =
   ; mutable seq_num : int
   ; mutable timestamp : int
   ; mutable nonce : int
+  ; closed : unit Ivar.t
   }
 [@@deriving sexp_of, fields ~getters]
 
@@ -45,6 +46,7 @@ let create ~ssrc ~ip ~port ~tls_encryption_modes ~send_speaking =
   ; seq_num = 0
   ; timestamp = 0
   ; nonce = 0
+  ; closed = Ivar.create ()
   }
 ;;
 
@@ -59,8 +61,10 @@ let close
   ; seq_num = _
   ; timestamp = _
   ; nonce = _
+  ; closed
   }
   =
+  Ivar.fill_if_empty closed ();
   Socket.shutdown socket `Both;
   Audio.Opus.Encoder.destroy opus_encoder
 ;;
@@ -230,8 +234,11 @@ let frames_writer t ~tls_secret_key ~dave_session =
     State.create ~on_change:(function
       | `Playing -> send_speaking t true
       | `Not_playing ->
-        send_five_silent_frames (Fn.compose send_frame mls_encrypt);
-        send_speaking t false)
+        if Ivar.is_full t.closed
+        then return ()
+        else (
+          send_five_silent_frames (Fn.compose send_frame mls_encrypt);
+          send_speaking t false))
   in
   let reader, writer = Pipe.create () in
   let rec loop () =

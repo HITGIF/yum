@@ -70,6 +70,7 @@ type t =
   ; reincarnate : unit -> unit Deferred.t
   ; events_reader : Event.t Pipe.Reader.t
   ; events_writer : Event.t Pipe.Writer.t
+  ; get_users_in_channel : unit -> Model.User_id.t list
   }
 [@@deriving fields ~getters]
 
@@ -82,6 +83,7 @@ let create
   ~session_id
   ~user_id
   ~reincarnate
+  ~get_users_in_channel
   ()
   =
   let time_source =
@@ -101,6 +103,7 @@ let create
   ; reincarnate
   ; events_reader
   ; events_writer
+  ; get_users_in_channel
   }
 ;;
 
@@ -110,7 +113,7 @@ let emit t event = Pipe.write_without_pushback_if_open t.events_writer event
 let write_if_connected t event =
   match t.state with
   | Disconnected ->
-    [%log.error
+    [%log.info
       [%here]
         "Ignoring write when disconnected"
         ~guild_id:(t.guild_id : Model.Guild_id.t)
@@ -289,7 +292,10 @@ let handle_session_description
               (Voice_udp.tls_encryption_mode voice_udp : Model.Tls_encryption_mode.t)];
     let ssrc = Voice_udp.ssrc voice_udp in
     let dave_session, events_reader =
-      Dave_session.create ~user_id:t.user_id ~channel_id:t.channel_id
+      Dave_session.create
+        ~user_id:t.user_id
+        ~channel_id:t.channel_id
+        ~users_in_channel:(t.get_users_in_channel ())
     in
     don't_wait_for (Pipe.iter events_reader ~f:(write_if_connected t));
     Dave_session.on_session_description dave_session dave_protocol_version;

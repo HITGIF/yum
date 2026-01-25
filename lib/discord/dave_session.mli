@@ -8,6 +8,7 @@ type t
 val create
   :  user_id:Model.User_id.t
   -> channel_id:Model.Channel_id.t
+  -> users_in_channel:Model.User_id.t list
   -> t * Model.Voice_gateway.Event.Sendable.t Pipe.Reader.t
 
 val close : t -> unit
