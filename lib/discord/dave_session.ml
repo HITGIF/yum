@@ -57,19 +57,32 @@ let create ~self_user_id ~group_id =
   }
 ;;
 
+let run_if_not_closed' ~(here : [%call_pos]) t f ~default =
+  if Ivar.is_full t.closed
+  then (
+    [%log.debug
+      [%here] "DAVE session closed, ignoring action" (here : Source_code_position.t)];
+    default)
+  else f ()
+;;
+
+let run_if_not_closed ~(here : [%call_pos]) t f = run_if_not_closed' ~here t f ~default:()
+
 let close
-  { session
-  ; self_user_id = _
-  ; group_id = _
-  ; recognized_user_ids = _
-  ; protocol_transitions = _
-  ; outgoing_writer
-  ; outgoing_reader = _
-  ; encryptor
-  ; decryptor
-  ; closed
-  }
+  ({ session
+   ; self_user_id = _
+   ; group_id = _
+   ; recognized_user_ids = _
+   ; protocol_transitions = _
+   ; outgoing_writer
+   ; outgoing_reader = _
+   ; encryptor
+   ; decryptor
+   ; closed
+   } as t)
   =
+  let%with () = run_if_not_closed ~here:[%here] t in
+  [%log.debug [%here] "Closing DAVE session"];
   Ivar.fill_if_empty closed ();
   Dave.Encryptor.destroy encryptor;
   Dave.Decryptor.destroy decryptor;
@@ -79,8 +92,6 @@ let close
 
 let outgoing t = t.outgoing_reader
 let send_outgoing t msg = Pipe.write_without_pushback_if_open t.outgoing_writer msg
-let run_if_not_closed t f = if Ivar.is_full t.closed then () else f ()
-let run_if_not_closed' t f ~default = if Ivar.is_full t.closed then default else f ()
 
 let setup_key_ratchet_for_user t ~user_id ~protocol_version =
   let%with () = run_if_not_closed t in
