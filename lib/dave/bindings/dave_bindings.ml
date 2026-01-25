@@ -144,11 +144,11 @@ module C (F : Cstubs.FOREIGN) = struct
     let set_protocol_version =
       foreign
         "daveSessionSetProtocolVersion"
-        (t @-> uint64_t (* version *) @-> returning void)
+        (t @-> uint16_t (* version *) @-> returning void)
     ;;
 
     let get_protocol_version =
-      foreign "daveSessionGetProtocolVersion" (t @-> returning uint64_t)
+      foreign "daveSessionGetProtocolVersion" (t @-> returning uint16_t)
     ;;
 
     let get_last_epoch_authenticator =

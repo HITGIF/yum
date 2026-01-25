@@ -106,13 +106,15 @@ let setup_key_ratchet_for_user t ~user_id ~protocol_version =
     | None -> Dave.Encryptor.set_passthrough_mode t.encryptor true
     | Some key_ratchet ->
       Dave.Encryptor.set_key_ratchet t.encryptor key_ratchet;
-      Dave.Encryptor.set_passthrough_mode t.encryptor false)
+      Dave.Encryptor.set_passthrough_mode t.encryptor false;
+      Dave.Key_ratchet.destroy key_ratchet)
   else (
     match key_ratchet with
     | None -> Dave.Decryptor.set_passthrough_mode t.decryptor true
     | Some key_ratchet ->
       Dave.Decryptor.transition_to_key_ratchet t.decryptor key_ratchet;
-      Dave.Decryptor.set_passthrough_mode t.decryptor false)
+      Dave.Decryptor.set_passthrough_mode t.decryptor false;
+      Dave.Key_ratchet.destroy key_ratchet)
 ;;
 
 let prepare_dave_protocol_ratchets t ~transition_id ~protocol_version =
@@ -395,7 +397,7 @@ let decrypt t ~ciphertext =
      | Success | Missing_key_ratchet -> ()
      | Decryption_failure | Missing_cryptor | Invalid_nonce ->
        [%log.error
-         [%here] "DAVE encryption failed" (error : Dave.Decryptor.Result_code.t)]);
+         [%here] "DAVE decryption failed" (error : Dave.Decryptor.Result_code.t)]);
     ciphertext
 ;;
 
