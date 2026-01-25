@@ -11,8 +11,46 @@ module Response : sig
 end
 
 module Create_message : sig
+  module Flag : sig
+    type t = IS_COMPONENTS_V2 [@@deriving sexp_of]
+  end
+
+  module Component : sig
+    type t =
+      | Action_row of { components : t list }
+      | Button of
+          { style : int
+          ; custom_id : string
+          ; label : string option [@default None]
+          ; emoji : string option [@default None]
+          }
+      | String_select
+      | Text_input
+      | User_select
+      | Role_select
+      | Mentionable_select
+      | Channel_select
+      | Section
+      | Text_display of { content : string }
+      | Thumbnail
+      | Media_gallery
+      | File
+      | Separator
+      | Unused_15
+      | Unused_16
+      | Container
+      | Label
+      | File_upload
+    [@@deriving sexp_of]
+  end
+
   module Request : sig
-    type t = { content : string option } [@@deriving sexp_of]
+    type t =
+      { content : string option
+      ; flags : Flag.t option
+      ; components : Component.t list option
+      }
+    [@@deriving sexp_of]
   end
 
   val call

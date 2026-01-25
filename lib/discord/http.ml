@@ -75,9 +75,92 @@ let call
 ;;
 
 module Create_message = struct
+  module Flag = struct
+    type t = IS_COMPONENTS_V2 [@@deriving sexp_of]
+
+    let to_int = function
+      | IS_COMPONENTS_V2 -> 1 lsl 15
+    ;;
+
+    let yojson_of_t t = t |> to_int |> [%yojson_of: int]
+  end
+
+  module Component = struct
+    type t =
+      | Action_row of { components : t list }
+      | Button of
+          { style : int
+          ; custom_id : string
+          ; label : string option [@default None]
+          ; emoji : string option [@default None]
+          }
+      | String_select
+      | Text_input
+      | User_select
+      | Role_select
+      | Mentionable_select
+      | Channel_select
+      | Section
+      | Text_display of { content : string }
+      | Thumbnail
+      | Media_gallery
+      | File
+      | Separator
+      | Unused_15
+      | Unused_16
+      | Container
+      | Label
+      | File_upload
+    [@@deriving sexp_of, yojson_of, variants]
+
+    let type_of_name =
+      let f acc { Variant.name; rank; _ } = Map.set acc ~key:name ~data:(rank + 1) in
+      Variants.fold
+        ~init:String.Map.empty
+        ~action_row:f
+        ~button:f
+        ~string_select:f
+        ~text_input:f
+        ~user_select:f
+        ~role_select:f
+        ~mentionable_select:f
+        ~channel_select:f
+        ~section:f
+        ~text_display:f
+        ~thumbnail:f
+        ~media_gallery:f
+        ~file:f
+        ~separator:f
+        ~unused_15:f
+        ~unused_16:f
+        ~container:f
+        ~label:f
+        ~file_upload:f
+    ;;
+
+    let rec typed_yojson_of = function
+      | `List [ `String name; `Assoc fields ] ->
+        let fields = List.map fields ~f:(Tuple2.map_snd ~f:typed_yojson_of) in
+        (match Map.find type_of_name name with
+         | None -> `Assoc fields
+         | Some type_ -> `Assoc (("type", [%yojson_of: int] type_) :: fields))
+      | `List jsons -> `List (List.map jsons ~f:typed_yojson_of)
+      | `Tuple jsons -> `Tuple (List.map jsons ~f:typed_yojson_of)
+      | `Variant (name, json) -> `Variant (name, Option.map json ~f:typed_yojson_of)
+      | `Assoc fields -> `Assoc (List.map fields ~f:(Tuple2.map_snd ~f:typed_yojson_of))
+      | (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _) as atom -> atom
+    ;;
+
+    let yojson_of_t t = [%yojson_of: t] t |> typed_yojson_of
+  end
+
   module Request = struct
-    type t = { content : string option [@default None] }
-    [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+    type t =
+      { content : string option [@default None]
+      ; flags : Flag.t option [@default None]
+      ; components : Component.t list option [@default None]
+      }
+    [@@deriving sexp_of, yojson_of]
   end
 
   let call ~auth_token ~channel_id request =
@@ -108,6 +191,57 @@ module%test _ = struct
     print_s
       [%sexp (url [ "channels"; "0"; "messages" ] |> Model.Uri.of_uri : Model.Uri.t)];
     [%expect {| https://discord.com/api/v10/channels/0/messages |}];
+    return ()
+  ;;
+
+  let%expect_test "message components" =
+    let open Create_message.Component in
+    let test ts = [%yojson_of: t list] ts |> Json.pretty_to_string |> print_endline in
+    test
+      [ Action_row
+          { components =
+              [ Button
+                  { style = 1
+                  ; custom_id = "click_me_1"
+                  ; label = Some "Click Me"
+                  ; emoji = None
+                  }
+              ; Button
+                  { style = 2
+                  ; custom_id = "click_me_2"
+                  ; label = Some "Click Me Too"
+                  ; emoji = None
+                  }
+              ]
+          }
+      ];
+    [%expect
+      {|
+      [
+        {
+          "type": 1,
+          "components": [
+            {
+              "type": 2,
+              "style": 1,
+              "custom_id": "click_me_1",
+              "label": "Click Me",
+              "emoji": null
+            },
+            {
+              "type": 2,
+              "style": 2,
+              "custom_id": "click_me_2",
+              "label": "Click Me Too",
+              "emoji": null
+            }
+          ]
+        }
+      ]
+      |}];
+    test [ Button { style = 1; custom_id = "1"; label = None; emoji = None } ];
+    [%expect
+      {| [ { "type": 2, "style": 1, "custom_id": "1", "label": null, "emoji": null } ] |}];
     return ()
   ;;
 end

@@ -163,7 +163,11 @@ let rec play ({ guild_id; _ } as t) =
     [%log.info [%here] "Playing song" (guild_id : Guild_id.t) (song : Song.t)];
     let%bind () =
       let url = Song.to_url song in
-      Discord.Agent.send_message ~emoji:Yum t.agent url
+      let%bind () = Discord.Agent.send_message ~emoji:Yum t.agent url in
+      Discord.Agent.send_message'
+        ~buttons:[ { style = Danger; custom_id = "skip"; label = Some "Skip" } ]
+        t.agent
+        None
     in
     t.playing <- Some song;
     Bvar.broadcast t.on_song_start song;
