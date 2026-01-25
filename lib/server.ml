@@ -18,15 +18,15 @@ module State = struct
     ; players : Player.t Guild_id.Table.t
     ; default_songs : Song.t Nonempty_list.t
     ; ffmpeg_path : File_path.Absolute.t
-    ; youtube_dl_path : File_path.Absolute.t
+    ; yt_dlp_path : File_path.Absolute.t
     }
 
-  let create ~auth_token ~default_songs ~ffmpeg_path ~youtube_dl_path () =
+  let create ~auth_token ~default_songs ~ffmpeg_path ~yt_dlp_path () =
     { auth_token
     ; players = Guild_id.Table.create ()
     ; default_songs
     ; ffmpeg_path
-    ; youtube_dl_path
+    ; yt_dlp_path
     }
   ;;
 
@@ -45,7 +45,7 @@ module State = struct
           Player.create
             ~auth_token:t.auth_token
             ~ffmpeg_path:t.ffmpeg_path
-            ~youtube_dl_path:t.youtube_dl_path
+            ~yt_dlp_path:t.yt_dlp_path
             ~guild_id
             ~voice_channel
             ~message_channel
@@ -133,8 +133,8 @@ let handle_command ~state ~gateway ~guild_id ~message_channel ~user_id command =
        return ())
   | Play_list playlist ->
     (match Song.Playlist.to_src playlist with
-     | `Ytdl_playlist url ->
-       (match%bind Youtube_dl.get_playlist url with
+     | `Youtube url ->
+       (match%bind Yt_dlp.get_playlist url with
         | Error error ->
           let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
           send_message message_channel [%string ":fearful: ```%{error}```"]
@@ -195,12 +195,12 @@ let read_youtube_songs filename =
   |> Nonempty_list.map ~f:Song.of_youtube_string
 ;;
 
-let run ~discord_bot_token:auth_token ~youtube_songs ~ffmpeg_path ~youtube_dl_path () =
+let run ~discord_bot_token:auth_token ~youtube_songs ~ffmpeg_path ~yt_dlp_path () =
   Gc.disable_compaction ~allocation_policy:`Don't_change ();
   Scheduler.report_long_cycle_times ~cutoff:(Time_float.Span.of_int_ms 100) ();
   let youtube_songs = read_youtube_songs youtube_songs in
   let state =
-    State.create ~auth_token ~default_songs:youtube_songs ~ffmpeg_path ~youtube_dl_path ()
+    State.create ~auth_token ~default_songs:youtube_songs ~ffmpeg_path ~yt_dlp_path ()
   in
   let%with (`Shutdown shutdown) = Graceful_shutdown.with_ in
   let%with gateway =

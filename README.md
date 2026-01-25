@@ -30,13 +30,12 @@ rm -rf tmp
 ```sh
 sudo apt install -y ffmpeg
 ```
-4. Download [youtube-dl (ytdl-nightly)](https://github.com/ytdl-org/ytdl-nightly). e.g.
+4. Download [yt-dlp](https://github.com/yt-dlp/yt-dlp). e.g.
 ```sh
-wget https://github.com/ytdl-org/ytdl-nightly/releases/latest/download/youtube-dl
-chmod +x youtube-dl
-sudo mv youtube-dl /usr/bin # or somewhere else you prefer
+wget -O yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
+chmod +x yt-dlp
+sudo mv yt-dlp /usr/bin # or somewhere else you prefer
 ```
-> Make sure `python` is aliased to `python3`. If not, run `sudo apt install -y python-is-python3`
 5. Download [yum](https://github.com/HITGIF/yum)
 ```sh
 wget https://github.com/HITGIF/yum/releases/latest/download/yum
@@ -65,8 +64,8 @@ wget https://gist.githubusercontent.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c/
   [-ffmpeg-path PATH]        . Path to the ffmpeg binary (default:
                                /usr/bin/ffmpeg)
   [-log-level LEVEL]         . The log level (can be: Debug, Error, Info)
-  [-youtube-dl-path PATH]    . Path to the youtube-dl binary (default:
-                               /usr/bin/youtube-dl)
+  [-yt-dlp-path PATH]        . Path to the yt-dlp binary (default:
+                               /usr/bin/yt-dlp)
   [-build-info]              . print info about this build and exit
   [-version]                 . print the version of this build and exit
   [-help], -?                . print this help text and exit
