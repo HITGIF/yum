@@ -173,15 +173,16 @@ let frames_writer t ~tls_secret_key ~dave_session =
   let song_start = ref None in
   let song_sent_frames = ref 0 in
   let rec send () =
-    let%bind () =
-      if Pipe.is_empty reader
-      then (
-        song_start := None;
-        song_sent_frames := 0;
-        let%map () = set_speaking false in
-        send_five_silent_frames (Fn.compose send_frame mls_encrypt))
-      else return ()
-    in
+    let read_frames = Ivar.create () in
+    don't_wait_for
+      (let%bind () = Clock_ns.after Audio.Pcm_frame.frame_duration in
+       if Ivar.is_full read_frames
+       then return ()
+       else (
+         song_start := None;
+         song_sent_frames := 0;
+         let%map () = set_speaking false in
+         send_five_silent_frames (Fn.compose send_frame mls_encrypt)));
     match%bind Pipe.read reader with
     | `Eof ->
       [%log.debug
@@ -191,6 +192,7 @@ let frames_writer t ~tls_secret_key ~dave_session =
       close t;
       send_speaking t false
     | `Ok pcm_frames ->
+      Ivar.fill_if_empty read_frames ();
       let num_frames = Queue.length pcm_frames in
       let mls_encrypted_frames =
         Queue.map pcm_frames ~f:(fun pcm ->
