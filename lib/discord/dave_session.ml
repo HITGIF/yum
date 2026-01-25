@@ -58,10 +58,6 @@ let create ~self_user_id ~group_id =
 let outgoing t = t.outgoing_reader
 let send_outgoing t msg = Pipe.write_without_pushback_if_open t.outgoing_writer msg
 
-let get_recognized_user_ids t =
-  Hash_set.to_list t.recognized_user_ids @ [ t.self_user_id ]
-;;
-
 let make_user_key_ratchet t ~user_id ~protocol_version =
   if protocol_version = disabled_version
   then None
@@ -70,7 +66,6 @@ let make_user_key_ratchet t ~user_id ~protocol_version =
 
 let setup_key_ratchet_for_user t ~user_id ~protocol_version =
   let key_ratchet = make_user_key_ratchet t ~user_id ~protocol_version in
-  (* Update encryptor/decryptor if this is for self *)
   if String.equal user_id t.self_user_id
   then (
     match key_ratchet with
@@ -87,15 +82,13 @@ let setup_key_ratchet_for_user t ~user_id ~protocol_version =
 ;;
 
 let prepare_dave_protocol_ratchets t ~transition_id ~protocol_version =
-  let recognized_users = get_recognized_user_ids t in
   [%log.debug
     [%here]
       "Preparing DAVE protocol ratchets"
       (transition_id : int)
-      (protocol_version : int)
-      (recognized_users : string list)];
+      (protocol_version : int)];
   (* Setup key ratchets for all recognized users except self *)
-  List.iter recognized_users ~f:(fun user_id ->
+  Hash_set.iter t.recognized_user_ids ~f:(fun user_id ->
     if not (String.equal user_id t.self_user_id)
     then setup_key_ratchet_for_user t ~user_id ~protocol_version);
   (* For init transition, also setup self immediately; otherwise defer to execute *)
@@ -110,11 +103,13 @@ let maybe_send_dave_protocol_ready_for_transition t ~transition_id =
 ;;
 
 let send_mls_key_package t =
-  let key_package = Dave.Session.get_marshalled_key_package t.session in
-  let key_package_str = Dave.Uint8_data.to_string key_package in
-  let key_package_b64 = Base64.encode_string key_package_str in
   [%log.debug [%here] "Sending MLS key package"];
-  send_outgoing t (Mls_key_package { key_package = key_package_b64 })
+  let key_package =
+    Dave.Session.get_marshalled_key_package t.session
+    |> Dave.Uint8_data.to_string
+    |> Base64.encode_string
+  in
+  send_outgoing t (Mls_key_package { key_package })
 ;;
 
 let handle_dave_protocol_prepare_epoch t ~epoch ~protocol_version ~group_id =
@@ -177,45 +172,57 @@ let destroy_user t ~user_id =
   [%log.debug [%here] "Removing recognized user" (user_id : string) (num_users : int)]
 ;;
 
-(** Handle Session_description (opcode 4) - called when dave_protocol_version is set *)
-let on_session_description t ~dave_protocol_version =
+let on_session_description
+  t
+  { Model.Voice_gateway.Event.Session_description.dave_protocol_version
+  ; secret_key = _
+  ; mode = _
+  }
+  =
   handle_dave_protocol_init t ~protocol_version:dave_protocol_version
 ;;
 
-(** Handle Dave_protocol_prepare_transition (opcode 21) *)
-let on_dave_protocol_prepare_transition t ~transition_id ~protocol_version =
+let on_dave_protocol_prepare_transition
+  t
+  { Model.Voice_gateway.Event.Dave_protocol_prepare_transition.transition_id
+  ; protocol_version
+  }
+  =
   prepare_dave_protocol_ratchets t ~transition_id ~protocol_version;
   maybe_send_dave_protocol_ready_for_transition t ~transition_id
 ;;
 
-(** Handle Dave_protocol_execute_transition (opcode 22) *)
-let on_dave_protocol_execute_transition t ~transition_id =
+let on_dave_protocol_execute_transition
+  t
+  { Model.Voice_gateway.Event.Dave_protocol_execute_transition.transition_id }
+  =
   handle_dave_protocol_execute_transition t ~transition_id
 ;;
 
-(** Handle Dave_protocol_prepare_epoch (opcode 24) *)
-let on_dave_protocol_prepare_epoch t ~epoch ~protocol_version =
+let on_dave_protocol_prepare_epoch
+  t
+  { Model.Voice_gateway.Event.Dave_protocol_prepare_epoch.epoch; protocol_version }
+  =
   handle_dave_protocol_prepare_epoch t ~epoch ~protocol_version ~group_id:t.group_id;
   if epoch = mls_new_group_expected_epoch then send_mls_key_package t
 ;;
 
-(** Handle Mls_external_sender_package (opcode 25) *)
-let on_mls_external_sender_package t ~external_sender_package =
+let on_mls_external_sender_package
+  t
+  { Model.Voice_gateway.Event.Mls_external_sender_package.external_sender_package }
+  =
   [%log.debug [%here] "Received MLS external sender package"];
   let data = Base64.decode_exn external_sender_package |> Dave.Uint8_data.of_string in
   Dave.Session.set_external_sender t.session data
 ;;
 
-(** Handle Mls_proposals (opcode 27) *)
-let on_mls_proposals t ~proposals =
-  let recognized_user_ids = Hash_set.to_list t.recognized_user_ids in
-  let recognized_count = List.length recognized_user_ids in
-  [%log.debug [%here] "Received MLS proposals" (recognized_count : int)];
-  let proposals = Base64.decode_exn proposals |> Dave.Uint8_data.of_string in
+let on_mls_proposals t { Model.Voice_gateway.Event.Mls_proposals.proposals } =
   let commit_welcome =
+    let recognized_user_ids = Hash_set.to_list t.recognized_user_ids in
+    let proposals = Base64.decode_exn proposals |> Dave.Uint8_data.of_string in
     Dave.Session.process_proposals t.session ~proposals ~recognized_user_ids
   in
-  (* If process_proposals returns non-empty data, we need to send commit_welcome *)
+  (* If process_proposals returns non-empty data, send commit_welcome *)
   let commit_welcome = Dave.Uint8_data.to_string commit_welcome in
   if String.is_empty commit_welcome
   then [%log.debug [%here] "process_proposals returned empty, no commit created"]
@@ -225,14 +232,16 @@ let on_mls_proposals t ~proposals =
     send_outgoing t (Mls_commit_welcome { commit_welcome }))
 ;;
 
-(** Handle Mls_prepare_commit_transition (opcode 29) *)
-let on_mls_prepare_commit_transition t ~transition_id ~commit =
+let on_mls_prepare_commit_transition
+  t
+  { Model.Voice_gateway.Event.Mls_prepare_commit_transition.transition_id; commit }
+  =
   [%log.debug [%here] "Received MLS prepare commit transition" (transition_id : int)];
   let commit_data = Base64.decode_exn commit |> Dave.Uint8_data.of_string in
-  let result = Dave.Session.process_commit t.session commit_data in
+  let commit_result = Dave.Session.process_commit t.session commit_data in
   let protocol_version = Dave.Session.get_protocol_version t.session in
-  let is_ignored = Dave.Commit_result.is_ignored result in
-  let is_failed = Dave.Commit_result.is_failed result in
+  let is_ignored = Dave.Commit_result.is_ignored commit_result in
+  let is_failed = Dave.Commit_result.is_failed commit_result in
   [%log.debug [%here] "process_commit returned" (is_ignored : bool) (is_failed : bool)];
   if is_ignored
   then [%log.debug [%here] "MLS commit was ignored" (transition_id : int)]
@@ -244,21 +253,23 @@ let on_mls_prepare_commit_transition t ~transition_id ~commit =
   else (
     prepare_dave_protocol_ratchets t ~transition_id ~protocol_version;
     maybe_send_dave_protocol_ready_for_transition t ~transition_id);
-  Dave.Commit_result.destroy result
+  Dave.Commit_result.destroy commit_result
 ;;
 
-(** Handle Mls_welcome (opcode 30) *)
-let on_mls_welcome t ~transition_id ~welcome =
+let on_mls_welcome t { Model.Voice_gateway.Event.Mls_welcome.transition_id; welcome } =
   let recognized_user_ids = Hash_set.to_list t.recognized_user_ids in
   let num_users = List.length recognized_user_ids in
   [%log.debug [%here] "Received MLS welcome" (transition_id : int) (num_users : int)];
-  let welcome_data = Base64.decode_exn welcome |> Dave.Uint8_data.of_string in
   let welcome_result =
+    let welcome_data = Base64.decode_exn welcome |> Dave.Uint8_data.of_string in
     Dave.Session.process_welcome t.session welcome_data ~recognized_user_ids
   in
   (* Check if we joined the group by looking at roster member IDs *)
-  let roster_ids = Dave.Welcome_result.get_roster_member_ids welcome_result in
-  let roster_count = Dave.Uint64_data.len roster_ids |> Unsigned.Size_t.to_int in
+  let roster_count =
+    Dave.Welcome_result.get_roster_member_ids welcome_result
+    |> Dave.Uint64_data.len
+    |> Unsigned.Size_t.to_int
+  in
   let joined_group = roster_count > 0 in
   [%log.debug
     [%here]
@@ -281,22 +292,18 @@ let on_mls_welcome t ~transition_id ~welcome =
   Dave.Welcome_result.destroy welcome_result
 ;;
 
-(** Encrypt a frame for sending *)
 let encrypt t ~ssrc ~frame ~output =
   Dave.Encryptor.encrypt t.encryptor ~media_type:Audio ~ssrc ~frame ~output
 ;;
 
-(** Get max ciphertext size for a given frame size *)
 let get_max_ciphertext_byte_size t ~frame_size =
   Dave.Encryptor.get_max_ciphertext_byte_size t.encryptor ~media_type:Audio ~frame_size
 ;;
 
-(** Decrypt a received frame *)
 let decrypt t ~encrypted_frame ~output =
   Dave.Decryptor.decrypt t.decryptor ~media_type:Audio ~encrypted_frame ~output
 ;;
 
-(** Get max plaintext size for a given encrypted frame size *)
 let get_max_plaintext_byte_size t ~encrypted_frame_size =
   Dave.Decryptor.get_max_plaintext_byte_size
     t.decryptor
@@ -304,7 +311,6 @@ let get_max_plaintext_byte_size t ~encrypted_frame_size =
     ~encrypted_frame_size
 ;;
 
-(** Assign SSRC to codec for encryption *)
 let assign_ssrc_to_codec t ~ssrc ~codec =
   Dave.Encryptor.assign_ssrc_to_codec t.encryptor ~ssrc ~codec
 ;;
