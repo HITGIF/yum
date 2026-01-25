@@ -103,6 +103,7 @@ module Decryptor_result_code : sig
     | Missing_key_ratchet
     | Invalid_nonce
     | Missing_cryptor
+  [@@deriving sexp_of]
 end
 
 module Encryptor_stats : sig
@@ -128,18 +129,13 @@ module Encryptor : sig
   val get_protocol_version : t -> int
   val has_key_ratchet : t -> bool
   val is_passthrough_mode : t -> bool
-  val get_max_ciphertext_byte_size : t -> media_type:Media_type.t -> frame_size:int -> int
 
-  (** [encrypt t ~media_type ~ssrc ~frame ~output] encrypts [frame] into [output]. Returns
-      the result code and number of bytes written to [output]. [output] must be at least
-      [get_max_ciphertext_byte_size] bytes. *)
   val encrypt
     :  t
     -> media_type:Media_type.t
     -> ssrc:int
-    -> frame:bytes
-    -> output:bytes
-    -> Encryptor_result_code.t * int
+    -> plaintext:bytes
+    -> Encryptor_result_code.t * bytes
 
   val set_protocol_version_changed_callback : t -> callback:(unit -> unit) -> unit
   val get_stats : t -> media_type:Media_type.t -> Encryptor_stats.t Ctypes.structure
@@ -153,21 +149,11 @@ module Decryptor : sig
   val transition_to_key_ratchet : t -> Key_ratchet.t -> unit
   val set_passthrough_mode : t -> bool -> unit
 
-  val get_max_plaintext_byte_size
-    :  t
-    -> media_type:Media_type.t
-    -> encrypted_frame_size:int
-    -> int
-
-  (** [decrypt t ~media_type ~encrypted_frame ~output] decrypts [encrypted_frame] into
-      [output]. Returns the result code and number of bytes written to [output]. [output]
-      must be at least [get_max_plaintext_byte_size] bytes. *)
   val decrypt
     :  t
     -> media_type:Media_type.t
-    -> encrypted_frame:bytes
-    -> output:bytes
-    -> Decryptor_result_code.t * int
+    -> ciphertext:bytes
+    -> Decryptor_result_code.t * bytes
 
   val get_stats : t -> media_type:Media_type.t -> Decryptor_stats.t Ctypes.structure
 end

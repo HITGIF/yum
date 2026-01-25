@@ -211,7 +211,10 @@ let reincarnate t =
   t.reincarnate ()
 ;;
 
-let handle_ready t { Model.Voice_gateway.Event.Ready.ssrc; ip; port; modes } =
+let handle_ready
+  t
+  { Model.Voice_gateway.Event.Ready.ssrc; ip; port; modes = tls_encryption_modes }
+  =
   match t.state with
   | Connected ({ state = Waiting_for_ready; _ } as connected) ->
     [%log.info
@@ -225,7 +228,7 @@ let handle_ready t { Model.Voice_gateway.Event.Ready.ssrc; ip; port; modes } =
         ~ssrc
         ~ip
         ~port
-        ~encryption_modes:modes
+        ~tls_encryption_modes
         ~send_speaking:(send_speaking t)
       >>| Or_error.ok_exn
     in
@@ -252,7 +255,7 @@ let handle_ready t { Model.Voice_gateway.Event.Ready.ssrc; ip; port; modes } =
               ; data =
                   { address = my_ip
                   ; port = my_port
-                  ; mode = Voice_udp.encryption_mode voice_udp
+                  ; mode = Voice_udp.tls_encryption_mode voice_udp
                   }
               })
        in
@@ -269,32 +272,36 @@ let handle_ready t { Model.Voice_gateway.Event.Ready.ssrc; ip; port; modes } =
 
 let handle_session_description
   t
-  { Model.Voice_gateway.Event.Session_description.secret_key
-  ; mode = _
+  { Model.Voice_gateway.Event.Session_description.secret_key = tls_secret_key
+  ; mode = tls_encryption_mode
   ; dave_protocol_version
   }
   =
   match t.state with
   | Connected ({ state = Waiting_for_session_description { voice_udp }; _ } as connected)
     ->
+    if not
+         ([%equal: Model.Tls_encryption_mode.t]
+            tls_encryption_mode
+            (Voice_udp.tls_encryption_mode voice_udp))
+    then
+      Error.raise_s
+        [%message
+          [%here]
+            "TLS encryption mode mismatch"
+            ~guild_id:(t.guild_id : Model.Guild_id.t)
+            ~actual:(tls_encryption_mode : Model.Tls_encryption_mode.t)
+            ~expected:
+              (Voice_udp.tls_encryption_mode voice_udp : Model.Tls_encryption_mode.t)];
     let ssrc = Voice_udp.ssrc voice_udp in
     Dave_session.on_session_description t.dave_session ~dave_protocol_version;
     Dave_session.assign_ssrc_to_codec t.dave_session ~ssrc ~codec:Opus;
-    let dave_encrypt =
-      if dave_protocol_version > 0
-      then
-        Some
-          (Voice_udp.Dave_encrypt.create
-             ~encrypt:(fun ~frame ~output ->
-               Dave_session.encrypt t.dave_session ~ssrc ~frame ~output)
-             ~get_max_ciphertext_byte_size:(fun ~frame_size ->
-               Dave_session.get_max_ciphertext_byte_size t.dave_session ~frame_size))
-      else None
+    let frames_writer =
+      let tls_secret_key =
+        List.of_array tls_secret_key |> List.map ~f:Char.of_int_exn |> Bytes.of_char_list
+      in
+      Voice_udp.frames_writer voice_udp ~tls_secret_key ~dave_session:t.dave_session
     in
-    let secret_key =
-      List.of_array secret_key |> List.map ~f:Char.of_int_exn |> Bytes.of_char_list
-    in
-    let frames_writer = Voice_udp.frames_writer voice_udp ~secret_key ?dave_encrypt () in
     connected.state <- Ready_to_send { frames_writer };
     [%log.debug
       [%here]

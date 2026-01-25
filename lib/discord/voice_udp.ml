@@ -2,56 +2,6 @@ open! Core
 open! Async
 open! Common
 
-module Tls_Encryption = struct
-  type t = [ `Aead_xchacha20_poly1305_rtpsize ] [@@deriving enumerate, sexp_of]
-
-  let create modes =
-    match
-      List.find [%all: t] ~f:(fun mode ->
-        List.mem
-          modes
-          (mode :> Model.Encryption_mode.t)
-          ~equal:[%equal: Model.Encryption_mode.t])
-    with
-    | Some mode -> Ok mode
-    | None ->
-      Or_error.error_s
-        [%message
-          "No supported encrypyion modes"
-            ~supported:([%all: t] : t list)
-            ~available:(modes : Model.Encryption_mode.t list)]
-  ;;
-
-  let pad_nonce int ~len =
-    let buf = Bytes.make len '\000' |> Iobuf.of_bytes in
-    Iobuf.Poke.uint32_be_trunc buf ~pos:0 int;
-    Iobuf.to_bytes buf
-  ;;
-
-  let packetize ~header ~frame ~secret_key ~nonce = function
-    | `Aead_xchacha20_poly1305_rtpsize ->
-      (* https://github.com/Rapptz/discord.py/blob/005287898393bd13d21e077e8607d5226757820a/discord/voice_client.py#L384 *)
-      let ciphertext =
-        Sodium.Aead_xchacha20poly1305_ietf.encrypt
-          ~message:frame
-          ~additional_data:header
-          ~nonce:(pad_nonce nonce ~len:Sodium.Aead_xchacha20poly1305_ietf.nonce_len)
-          ~key:secret_key
-          ()
-        |> ok_exn
-      in
-      let nonce = pad_nonce nonce ~len:4 in
-      let buf =
-        Iobuf.create ~len:Bytes.(length header + length ciphertext + length nonce)
-      in
-      Iobuf.Fill.byteso buf header;
-      Iobuf.Fill.byteso buf ciphertext;
-      Iobuf.Fill.byteso buf nonce;
-      Iobuf.flip_lo buf;
-      Iobuf.read_only buf
-  ;;
-end
-
 type t =
   { ssrc : Model.Ssrc.t
   ; socket : (([ `Bound ], Socket.Address.Inet.t) Socket.t[@sexp.opaque])
@@ -61,7 +11,7 @@ type t =
       [@sexp.opaque])
   ; send_speaking :
       (Model.Voice_gateway.Event.Speaking.t -> unit Deferred.t[@sexp.opaque])
-  ; tls_encryption : Tls_Encryption.t
+  ; tls_encryptor : Tls_encryptor.t
   ; opus_encoder : (Audio.Opus.Encoder.t[@sexp.opaque])
   ; mutable seq_num : int
   ; mutable timestamp : int
@@ -69,10 +19,10 @@ type t =
   }
 [@@deriving sexp_of, fields ~getters]
 
-let create ~ssrc ~ip ~port ~encryption_modes ~send_speaking =
+let create ~ssrc ~ip ~port ~tls_encryption_modes ~send_speaking =
   Sodium.init () |> ok_exn;
-  let%bind.Deferred.Or_error tls_encryption =
-    Tls_Encryption.create encryption_modes |> return
+  let%bind.Deferred.Or_error tls_encryptor =
+    Tls_encryptor.create tls_encryption_modes |> return
   in
   let%bind.Deferred.Or_error sendto = Async_udp.sendto_sync () |> return in
   let sendto fd iobuf addr = sendto fd iobuf addr |> Unix.Syscall_result.Unit.ok_exn in
@@ -90,7 +40,7 @@ let create ~ssrc ~ip ~port ~encryption_modes ~send_speaking =
   ; dest
   ; sendto
   ; send_speaking
-  ; tls_encryption
+  ; tls_encryptor
   ; opus_encoder
   ; seq_num = 0
   ; timestamp = 0
@@ -98,7 +48,7 @@ let create ~ssrc ~ip ~port ~encryption_modes ~send_speaking =
   }
 ;;
 
-let encryption_mode t = (t.tls_encryption :> Model.Encryption_mode.t)
+let tls_encryption_mode t = Tls_encryptor.mode t.tls_encryptor
 
 (** https://discord.com/developers/docs/topics/voice-connections#ip-discovery *)
 let discover_ip t =
@@ -136,7 +86,7 @@ let discover_ip t =
     Iobuf.Fill.uint16_be_trunc buf 0x01;
     Iobuf.Fill.uint16_be_trunc buf 70;
     Iobuf.Fill.uint32_be_trunc buf (Model.Ssrc.to_int_exn t.ssrc);
-    Iobuf.flip_lo buf;
+    Iobuf.rewind buf;
     Iobuf.read_only buf
   in
   [%log.debug
@@ -158,10 +108,15 @@ let header ~seq_num ~timestamp ~ssrc =
 ;;
 
 (** https://discord.com/developers/docs/topics/voice-connections#transport-encryption-modes-voice-packet-structure *)
-let send_frame t frame ~secret_key =
+let send_frame t frame ~tls_secret_key =
   let header = header ~seq_num:t.seq_num ~timestamp:t.timestamp ~ssrc:t.ssrc in
   let packet =
-    Tls_Encryption.packetize t.tls_encryption ~header ~frame ~secret_key ~nonce:t.nonce
+    Tls_encryptor.encrypt
+      t.tls_encryptor
+      ~header
+      ~frame
+      ~secret_key:tls_secret_key
+      ~nonce:t.nonce
   in
   t.seq_num <- t.seq_num + 1;
   t.nonce <- t.nonce + 1;
@@ -186,7 +141,7 @@ let close
   ; dest = _
   ; sendto = _
   ; send_speaking = _
-  ; tls_encryption = _
+  ; tls_encryptor = _
   ; opus_encoder
   ; seq_num = _
   ; timestamp = _
@@ -197,46 +152,14 @@ let close
   Audio.Opus.Encoder.destroy opus_encoder
 ;;
 
-module Dave_encrypt = struct
-  type t =
-    { encrypt : frame:bytes -> output:bytes -> Dave.Encryptor_result_code.t * int
-    ; get_max_ciphertext_byte_size : frame_size:int -> int
-    ; mutable output_buffer : bytes
-    }
-
-  let create ~encrypt ~get_max_ciphertext_byte_size =
-    { encrypt; get_max_ciphertext_byte_size; output_buffer = Bytes.create 0 }
-  ;;
-
-  let encrypt t ~frame =
-    let frame_size = Bytes.length frame in
-    let required_size = t.get_max_ciphertext_byte_size ~frame_size in
-    (* Reuse or grow output buffer as needed *)
-    if Bytes.length t.output_buffer < required_size
-    then t.output_buffer <- Bytes.create required_size;
-    let result, bytes_written = t.encrypt ~frame ~output:t.output_buffer in
-    result, bytes_written
-  ;;
-end
-
-let frames_writer t ~secret_key ?dave_encrypt () =
+let frames_writer t ~tls_secret_key ~dave_session =
   let mls_encrypt opus_frame =
-    let frame = Audio.Opus.Frame.to_bytes opus_frame in
-    match dave_encrypt with
-    | None -> frame
-    | Some dave ->
-      let result, len = Dave_encrypt.encrypt dave ~frame in
-      (match result with
-       | Dave.Encryptor_result_code.Success -> Bytes.subo dave.output_buffer ~len
-       | error ->
-         (match error with
-          | Success | Missing_key_ratchet -> ()
-          | Encryption_failure | Too_many_attempts | Missing_cryptor ->
-            [%log.error
-              [%here] "DAVE encryption failed" (error : Dave.Encryptor_result_code.t)]);
-         frame)
+    Dave_session.encrypt
+      dave_session
+      ~ssrc:t.ssrc
+      ~plaintext:(Audio.Opus.Frame.to_bytes opus_frame)
   in
-  let send_frame = send_frame t ~secret_key in
+  let send_frame = send_frame t ~tls_secret_key in
   let reader, writer = Pipe.create () in
   let set_speaking =
     let speaking = ref false in
@@ -251,13 +174,13 @@ let frames_writer t ~secret_key ?dave_encrypt () =
   let song_sent_frames = ref 0 in
   let rec send () =
     let%bind () =
-      match Pipe.peek reader with
-      | None ->
+      if Pipe.is_empty reader
+      then (
         song_start := None;
         song_sent_frames := 0;
         let%map () = set_speaking false in
-        send_five_silent_frames (Fn.compose send_frame mls_encrypt)
-      | Some (_ : Audio.Pcm_frame.t Queue.t) -> return ()
+        send_five_silent_frames (Fn.compose send_frame mls_encrypt))
+      else return ()
     in
     match%bind Pipe.read reader with
     | `Eof ->
@@ -309,34 +232,6 @@ module%test _ = struct
     let header = header ~seq_num:20 ~timestamp:960 ~ssrc:(Model.Ssrc.of_int_exn 1000) in
     print_bytes_hex header;
     [%expect {| 80780014000003c0000003e8 |}];
-    return ()
-  ;;
-
-  let%expect_test "nonce" =
-    let pad_nonce =
-      Tls_Encryption.pad_nonce ~len:Sodium.Aead_xchacha20poly1305_ietf.nonce_len
-    in
-    print_bytes_hex (pad_nonce 12);
-    [%expect {| 0000000c0000000000000000000000000000000000000000 |}];
-    print_bytes_hex (pad_nonce Unsigned.UInt32.(max_int |> to_int));
-    [%expect {| ffffffff0000000000000000000000000000000000000000 |}];
-    print_bytes_hex (pad_nonce Unsigned.UInt32.(max_int |> to_int |> ( + ) 1));
-    [%expect {| 000000000000000000000000000000000000000000000000 |}];
-    print_bytes_hex (pad_nonce Unsigned.UInt32.(max_int |> to_int |> ( + ) 1 |> ( + ) 1));
-    [%expect {| 000000010000000000000000000000000000000000000000 |}];
-    return ()
-  ;;
-
-  let%expect_test "nonce" =
-    let pad_nonce = Tls_Encryption.pad_nonce ~len:4 in
-    print_bytes_hex (pad_nonce 12);
-    [%expect {| 0000000c |}];
-    print_bytes_hex (pad_nonce Unsigned.UInt32.(max_int |> to_int));
-    [%expect {| ffffffff |}];
-    print_bytes_hex (pad_nonce Unsigned.UInt32.(max_int |> to_int |> ( + ) 1));
-    [%expect {| 00000000 |}];
-    print_bytes_hex (pad_nonce Unsigned.UInt32.(max_int |> to_int |> ( + ) 1 |> ( + ) 1));
-    [%expect {| 00000001 |}];
     return ()
   ;;
 end

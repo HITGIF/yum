@@ -198,7 +198,7 @@ module Message = struct
   [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 end
 
-module Encryption_mode = struct
+module Tls_encryption_mode = struct
   type t =
     [ `Aead_xchacha20_poly1305_rtpsize
     | `Unsupported of Json.t
@@ -503,7 +503,7 @@ module Voice_gateway = struct
         { ssrc : Ssrc.t
         ; ip : string
         ; port : int
-        ; modes : Encryption_mode.t list
+        ; modes : Tls_encryption_mode.t list
         }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
@@ -559,7 +559,7 @@ module Voice_gateway = struct
         type t =
           { address : string
           ; port : int
-          ; mode : Encryption_mode.t
+          ; mode : Tls_encryption_mode.t
           }
         [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
       end
@@ -593,7 +593,7 @@ module Voice_gateway = struct
 
     module Session_description = struct
       type t =
-        { mode : Encryption_mode.t
+        { mode : Tls_encryption_mode.t
         ; secret_key : int array
         ; dave_protocol_version : int
         }

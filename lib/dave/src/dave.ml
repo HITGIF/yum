@@ -96,7 +96,16 @@ module Encryptor_result_code = struct
   [@@deriving sexp_of]
 end
 
-module Decryptor_result_code = Binding.Decryptor_result_code
+module Decryptor_result_code = struct
+  type t = Binding.Decryptor_result_code.t =
+    | Success
+    | Decryption_failure
+    | Missing_key_ratchet
+    | Invalid_nonce
+    | Missing_cryptor
+  [@@deriving sexp_of]
+end
+
 module Encryptor_stats = Binding.Encryptor_stats
 module Decryptor_stats = Binding.Decryptor_stats
 
@@ -207,26 +216,29 @@ module Encryptor = struct
   let has_key_ratchet = has_key_ratchet
   let is_passthrough_mode = is_passthrough_mode
 
-  let get_max_ciphertext_byte_size t ~media_type ~frame_size =
-    get_max_ciphertext_byte_size t media_type (to_size_t frame_size) |> of_size_t
+  let get_max_ciphertext_byte_size t ~media_type ~plaintext_len =
+    get_max_ciphertext_byte_size t media_type (to_size_t plaintext_len) |> of_size_t
   ;;
 
-  let encrypt t ~media_type ~ssrc ~frame ~output =
-    let frame_len = Bytes.length frame in
-    let capacity = Bytes.length output in
-    let bytes_written = allocate size_t (to_size_t 0) in
+  let encrypt t ~media_type ~ssrc ~plaintext =
+    let plaintext_len = Bytes.length plaintext in
+    let ciphertext =
+      Bytes.create (get_max_ciphertext_byte_size t ~media_type ~plaintext_len)
+    in
+    let ciphertext_len = allocate size_t (to_size_t 0) in
     let result =
       encrypt
         t
         media_type
         (to_u32 ssrc)
-        !!frame
-        (to_size_t frame_len)
-        !!output
-        (to_size_t capacity)
-        bytes_written
+        !!plaintext
+        (to_size_t plaintext_len)
+        !!ciphertext
+        (to_size_t (Bytes.length ciphertext))
+        ciphertext_len
     in
-    result, of_size_t !@bytes_written
+    let ciphertext = Bytes.subo ciphertext ~len:(of_size_t !@ciphertext_len) in
+    result, ciphertext
   ;;
 
   let set_protocol_version_changed_callback t ~callback =
@@ -251,25 +263,28 @@ module Decryptor = struct
   let transition_to_key_ratchet = transition_to_key_ratchet
   let set_passthrough_mode = set_passthrough_mode
 
-  let get_max_plaintext_byte_size t ~media_type ~encrypted_frame_size =
-    get_max_plaintext_byte_size t media_type (to_size_t encrypted_frame_size) |> of_size_t
+  let get_max_plaintext_byte_size t ~media_type ~ciphertext_len =
+    get_max_plaintext_byte_size t media_type (to_size_t ciphertext_len) |> of_size_t
   ;;
 
-  let decrypt t ~media_type ~encrypted_frame ~output =
-    let encrypted_len = Bytes.length encrypted_frame in
-    let capacity = Bytes.length output in
-    let bytes_written = allocate size_t (to_size_t 0) in
+  let decrypt t ~media_type ~ciphertext =
+    let ciphertext_len = Bytes.length ciphertext in
+    let plaintext =
+      Bytes.create (get_max_plaintext_byte_size t ~media_type ~ciphertext_len)
+    in
+    let plaintext_len = allocate size_t (to_size_t 0) in
     let result =
       decrypt
         t
         media_type
-        !!encrypted_frame
-        (to_size_t encrypted_len)
-        !!output
-        (to_size_t capacity)
-        bytes_written
+        !!ciphertext
+        (to_size_t ciphertext_len)
+        !!plaintext
+        (to_size_t (Bytes.length plaintext))
+        plaintext_len
     in
-    result, of_size_t !@bytes_written
+    let plaintext = Bytes.subo plaintext ~len:(of_size_t !@plaintext_len) in
+    result, plaintext
   ;;
 
   let get_stats t ~media_type =

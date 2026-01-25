@@ -345,36 +345,40 @@ let on_mls_welcome t { Model.Voice_gateway.Event.Mls_welcome.transition_id; welc
   Dave.Welcome_result.destroy welcome_result
 ;;
 
-let encrypt t ~ssrc ~frame ~output =
-  let%with () =
-    run_if_not_closed' t ~default:(Dave.Encryptor_result_code.Missing_cryptor, 0)
+let encrypt t ~ssrc ~plaintext =
+  let%with () = run_if_not_closed' t ~default:plaintext in
+  let result, ciphertext =
+    Dave.Encryptor.encrypt
+      t.encryptor
+      ~media_type:Audio
+      ~ssrc:(Model.Ssrc.to_int_exn ssrc)
+      ~plaintext
   in
-  Dave.Encryptor.encrypt
-    t.encryptor
-    ~media_type:Audio
-    ~ssrc:(Model.Ssrc.to_int_exn ssrc)
-    ~frame
-    ~output
+  match result with
+  | Success -> ciphertext
+  | error ->
+    (match error with
+     | Success | Missing_key_ratchet -> ()
+     | Encryption_failure | Missing_cryptor | Too_many_attempts ->
+       [%log.error
+         [%here] "DAVE encryption failed" (error : Dave.Encryptor_result_code.t)]);
+    plaintext
 ;;
 
-let get_max_ciphertext_byte_size t ~frame_size =
-  let%with () = run_if_not_closed' t ~default:0 in
-  Dave.Encryptor.get_max_ciphertext_byte_size t.encryptor ~media_type:Audio ~frame_size
-;;
-
-let decrypt t ~encrypted_frame ~output =
-  let%with () =
-    run_if_not_closed' t ~default:(Dave.Decryptor_result_code.Missing_cryptor, 0)
+let decrypt t ~ciphertext =
+  let%with () = run_if_not_closed' t ~default:ciphertext in
+  let result, plaintext =
+    Dave.Decryptor.decrypt t.decryptor ~media_type:Audio ~ciphertext
   in
-  Dave.Decryptor.decrypt t.decryptor ~media_type:Audio ~encrypted_frame ~output
-;;
-
-let get_max_plaintext_byte_size t ~encrypted_frame_size =
-  let%with () = run_if_not_closed' t ~default:0 in
-  Dave.Decryptor.get_max_plaintext_byte_size
-    t.decryptor
-    ~media_type:Audio
-    ~encrypted_frame_size
+  match result with
+  | Success -> plaintext
+  | error ->
+    (match error with
+     | Success | Missing_key_ratchet -> ()
+     | Decryption_failure | Missing_cryptor | Invalid_nonce ->
+       [%log.error
+         [%here] "DAVE encryption failed" (error : Dave.Decryptor_result_code.t)]);
+    ciphertext
 ;;
 
 let assign_ssrc_to_codec t ~ssrc ~codec =

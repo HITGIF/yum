@@ -93,7 +93,7 @@ module Message : sig
   [@@deriving sexp_of]
 end
 
-module Encryption_mode : sig
+module Tls_encryption_mode : sig
   type t =
     [ `Aead_xchacha20_poly1305_rtpsize
     | `Unsupported of Json.t
@@ -293,7 +293,7 @@ module Voice_gateway : sig
         { ssrc : Ssrc.t
         ; ip : string
         ; port : int
-        ; modes : Encryption_mode.t list
+        ; modes : Tls_encryption_mode.t list
         }
       [@@deriving sexp_of]
     end
@@ -319,7 +319,7 @@ module Voice_gateway : sig
         type t =
           { address : string
           ; port : int
-          ; mode : Encryption_mode.t
+          ; mode : Tls_encryption_mode.t
           }
         [@@deriving sexp_of]
       end
@@ -343,7 +343,7 @@ module Voice_gateway : sig
 
     module Session_description : sig
       type t =
-        { mode : Encryption_mode.t
+        { mode : Tls_encryption_mode.t
         ; secret_key : int array
         ; dave_protocol_version : int
         }
