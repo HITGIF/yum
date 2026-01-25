@@ -399,4 +399,31 @@ module C (F : Cstubs.FOREIGN) = struct
         (t @-> Media_type.t @-> ptr Stats.t @-> returning void)
     ;;
   end
+
+  module Logging = struct
+    module Severity = struct
+      type t =
+        | Verbose
+        | Info
+        | Warning
+        | Error
+        | None
+      [@@deriving enumerate, variants]
+
+      include functor Make_enum
+    end
+
+    let set_log_sink_callback =
+      foreign
+        "daveSetLogSinkCallback"
+        (funptr (* callback *)
+           Ctypes.(
+             Severity.t (* severity *)
+             @-> string (* file *)
+             @-> int (* line *)
+             @-> string (* message *)
+             @-> returning void)
+         @-> returning void)
+    ;;
+  end
 end

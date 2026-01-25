@@ -2,7 +2,7 @@
  (name dave)
  (preprocess
   (pps ppx_jane))
- (libraries core bindings_core ctypes.stubs ctypes dave_bindings)
+ (libraries async_log core bindings_core ctypes.stubs ctypes dave_bindings)
  (foreign_stubs
   (language c)
   (names dave_stubs)

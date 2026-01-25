@@ -264,3 +264,32 @@ module Decryptor = struct
     result, plaintext
   ;;
 end
+
+module Logging = struct
+  open! Binding.Logging
+
+  let () =
+    set_log_sink_callback (fun severity file line message ->
+      let level =
+        match severity with
+        | Verbose | Info -> Some `Debug
+        | Warning | Error -> Some `Error
+        | None -> None
+      in
+      match level with
+      | None -> ()
+      | Some level ->
+        let filename =
+          match String.rsplit2 ~on:'/' file with
+          | Some (_, filename) -> filename
+          | None -> file
+        in
+        Async_log.printf
+          ~level
+          (force Async_log.Global.log)
+          "[libdave] [%s:%d] %s"
+          filename
+          line
+          message)
+  ;;
+end
