@@ -29,6 +29,7 @@ type t =
   ; outgoing_reader : Outgoing.t Pipe.Reader.t
   ; encryptor : Dave.Encryptor.t
   ; decryptor : Dave.Decryptor.t
+  ; closed : unit Ivar.t
   }
 [@@deriving fields ~getters]
 
@@ -36,8 +37,8 @@ let create ~self_user_id ~group_id =
   let on_error ~source ~reason =
     [%log.error [%here] "MLS failure" (source : string) (reason : string)]
   in
-  let session = Dave.Session.create ~on_error in
   let outgoing_reader, outgoing_writer = Pipe.create () in
+  let session = Dave.Session.create ~on_error in
   let encryptor = Dave.Encryptor.create () in
   let decryptor = Dave.Decryptor.create () in
   (* Start in passthrough mode until MLS handshake completes *)
@@ -52,20 +53,42 @@ let create ~self_user_id ~group_id =
   ; outgoing_reader
   ; encryptor
   ; decryptor
+  ; closed = Ivar.create ()
   }
+;;
+
+let close
+  { session
+  ; self_user_id = _
+  ; group_id = _
+  ; recognized_user_ids = _
+  ; protocol_transitions = _
+  ; outgoing_writer
+  ; outgoing_reader = _
+  ; encryptor
+  ; decryptor
+  ; closed
+  }
+  =
+  Ivar.fill_if_empty closed ();
+  Dave.Encryptor.destroy encryptor;
+  Dave.Decryptor.destroy decryptor;
+  Dave.Session.destroy session;
+  Pipe.close outgoing_writer
 ;;
 
 let outgoing t = t.outgoing_reader
 let send_outgoing t msg = Pipe.write_without_pushback_if_open t.outgoing_writer msg
-
-let make_user_key_ratchet t ~user_id ~protocol_version =
-  if protocol_version = disabled_version
-  then None
-  else Some (Dave.Session.get_key_ratchet t.session user_id)
-;;
+let run_if_not_closed t f = if Ivar.is_full t.closed then () else f ()
+let run_if_not_closed' t f ~default = if Ivar.is_full t.closed then default else f ()
 
 let setup_key_ratchet_for_user t ~user_id ~protocol_version =
-  let key_ratchet = make_user_key_ratchet t ~user_id ~protocol_version in
+  let%with () = run_if_not_closed t in
+  let key_ratchet =
+    if protocol_version = disabled_version
+    then None
+    else Some (Dave.Session.get_key_ratchet t.session user_id)
+  in
   if String.equal user_id t.self_user_id
   then (
     match key_ratchet with
@@ -82,6 +105,7 @@ let setup_key_ratchet_for_user t ~user_id ~protocol_version =
 ;;
 
 let prepare_dave_protocol_ratchets t ~transition_id ~protocol_version =
+  let%with () = run_if_not_closed t in
   [%log.debug
     [%here]
       "Preparing DAVE protocol ratchets"
@@ -98,11 +122,13 @@ let prepare_dave_protocol_ratchets t ~transition_id ~protocol_version =
 ;;
 
 let maybe_send_dave_protocol_ready_for_transition t ~transition_id =
+  let%with () = run_if_not_closed t in
   if transition_id <> init_transition_id
   then send_outgoing t (Dave_protocol_ready_for_transition { transition_id })
 ;;
 
 let send_mls_key_package t =
+  let%with () = run_if_not_closed t in
   [%log.debug [%here] "Sending MLS key package"];
   let key_package =
     Dave.Session.get_marshalled_key_package t.session
@@ -113,6 +139,7 @@ let send_mls_key_package t =
 ;;
 
 let handle_dave_protocol_prepare_epoch t ~epoch ~protocol_version ~group_id =
+  let%with () = run_if_not_closed t in
   if epoch = mls_new_group_expected_epoch
   then
     Dave.Session.init
@@ -123,6 +150,7 @@ let handle_dave_protocol_prepare_epoch t ~epoch ~protocol_version ~group_id =
 ;;
 
 let handle_dave_protocol_execute_transition t ~transition_id =
+  let%with () = run_if_not_closed t in
   [%log.debug [%here] "Executing transition" (transition_id : int)];
   match Hashtbl.find_and_remove t.protocol_transitions transition_id with
   | None ->
@@ -139,10 +167,12 @@ let handle_dave_protocol_execute_transition t ~transition_id =
 ;;
 
 let flag_mls_invalid_commit_welcome t ~transition_id =
+  let%with () = run_if_not_closed t in
   send_outgoing t (Mls_invalid_commit_welcome { transition_id })
 ;;
 
 let handle_dave_protocol_init t ~protocol_version =
+  let%with () = run_if_not_closed t in
   if protocol_version = disabled_version
   then (
     prepare_dave_protocol_ratchets t ~transition_id:init_transition_id ~protocol_version;
@@ -156,8 +186,8 @@ let handle_dave_protocol_init t ~protocol_version =
     send_mls_key_package t)
 ;;
 
-(** Add an allowed user to the connection *)
 let create_user t ~user_id =
+  let%with () = run_if_not_closed t in
   Hash_set.add t.recognized_user_ids user_id;
   let num_users = Hash_set.length t.recognized_user_ids in
   [%log.debug [%here] "Adding recognized user" (user_id : string) (num_users : int)];
@@ -165,20 +195,25 @@ let create_user t ~user_id =
   setup_key_ratchet_for_user t ~user_id ~protocol_version
 ;;
 
-(** Remove an allowed user from the connection *)
 let destroy_user t ~user_id =
+  let%with () = run_if_not_closed t in
   Hash_set.remove t.recognized_user_ids user_id;
   let num_users = Hash_set.length t.recognized_user_ids in
   [%log.debug [%here] "Removing recognized user" (user_id : string) (num_users : int)]
 ;;
 
-let on_session_description
-  t
-  { Model.Voice_gateway.Event.Session_description.dave_protocol_version
-  ; secret_key = _
-  ; mode = _
-  }
-  =
+let on_clients_connect t { Model.Voice_gateway.Event.Clients_connect.user_ids } =
+  let%with () = run_if_not_closed t in
+  List.iter user_ids ~f:(fun user_id -> create_user t ~user_id)
+;;
+
+let on_client_disconnect t { Model.Voice_gateway.Event.Client_disconnect.user_id } =
+  let%with () = run_if_not_closed t in
+  destroy_user t ~user_id
+;;
+
+let on_session_description t ~dave_protocol_version =
+  let%with () = run_if_not_closed t in
   handle_dave_protocol_init t ~protocol_version:dave_protocol_version
 ;;
 
@@ -188,6 +223,7 @@ let on_dave_protocol_prepare_transition
   ; protocol_version
   }
   =
+  let%with () = run_if_not_closed t in
   prepare_dave_protocol_ratchets t ~transition_id ~protocol_version;
   maybe_send_dave_protocol_ready_for_transition t ~transition_id
 ;;
@@ -196,6 +232,7 @@ let on_dave_protocol_execute_transition
   t
   { Model.Voice_gateway.Event.Dave_protocol_execute_transition.transition_id }
   =
+  let%with () = run_if_not_closed t in
   handle_dave_protocol_execute_transition t ~transition_id
 ;;
 
@@ -203,6 +240,7 @@ let on_dave_protocol_prepare_epoch
   t
   { Model.Voice_gateway.Event.Dave_protocol_prepare_epoch.epoch; protocol_version }
   =
+  let%with () = run_if_not_closed t in
   handle_dave_protocol_prepare_epoch t ~epoch ~protocol_version ~group_id:t.group_id;
   if epoch = mls_new_group_expected_epoch then send_mls_key_package t
 ;;
@@ -211,12 +249,14 @@ let on_mls_external_sender_package
   t
   { Model.Voice_gateway.Event.Mls_external_sender_package.external_sender_package }
   =
+  let%with () = run_if_not_closed t in
   [%log.debug [%here] "Received MLS external sender package"];
   let data = Base64.decode_exn external_sender_package |> Dave.Uint8_data.of_string in
   Dave.Session.set_external_sender t.session data
 ;;
 
 let on_mls_proposals t { Model.Voice_gateway.Event.Mls_proposals.proposals } =
+  let%with () = run_if_not_closed t in
   let commit_welcome =
     let recognized_user_ids = Hash_set.to_list t.recognized_user_ids in
     let proposals = Base64.decode_exn proposals |> Dave.Uint8_data.of_string in
@@ -236,6 +276,7 @@ let on_mls_prepare_commit_transition
   t
   { Model.Voice_gateway.Event.Mls_prepare_commit_transition.transition_id; commit }
   =
+  let%with () = run_if_not_closed t in
   [%log.debug [%here] "Received MLS prepare commit transition" (transition_id : int)];
   let commit_data = Base64.decode_exn commit |> Dave.Uint8_data.of_string in
   let commit_result = Dave.Session.process_commit t.session commit_data in
@@ -257,6 +298,7 @@ let on_mls_prepare_commit_transition
 ;;
 
 let on_mls_welcome t { Model.Voice_gateway.Event.Mls_welcome.transition_id; welcome } =
+  let%with () = run_if_not_closed t in
   let recognized_user_ids = Hash_set.to_list t.recognized_user_ids in
   let num_users = List.length recognized_user_ids in
   [%log.debug [%here] "Received MLS welcome" (transition_id : int) (num_users : int)];
@@ -293,18 +335,31 @@ let on_mls_welcome t { Model.Voice_gateway.Event.Mls_welcome.transition_id; welc
 ;;
 
 let encrypt t ~ssrc ~frame ~output =
-  Dave.Encryptor.encrypt t.encryptor ~media_type:Audio ~ssrc ~frame ~output
+  let%with () =
+    run_if_not_closed' t ~default:(Dave.Encryptor_result_code.Missing_cryptor, 0)
+  in
+  Dave.Encryptor.encrypt
+    t.encryptor
+    ~media_type:Audio
+    ~ssrc:(Model.Ssrc.to_int_exn ssrc)
+    ~frame
+    ~output
 ;;
 
 let get_max_ciphertext_byte_size t ~frame_size =
+  let%with () = run_if_not_closed' t ~default:0 in
   Dave.Encryptor.get_max_ciphertext_byte_size t.encryptor ~media_type:Audio ~frame_size
 ;;
 
 let decrypt t ~encrypted_frame ~output =
+  let%with () =
+    run_if_not_closed' t ~default:(Dave.Decryptor_result_code.Missing_cryptor, 0)
+  in
   Dave.Decryptor.decrypt t.decryptor ~media_type:Audio ~encrypted_frame ~output
 ;;
 
 let get_max_plaintext_byte_size t ~encrypted_frame_size =
+  let%with () = run_if_not_closed' t ~default:0 in
   Dave.Decryptor.get_max_plaintext_byte_size
     t.decryptor
     ~media_type:Audio
@@ -312,11 +367,9 @@ let get_max_plaintext_byte_size t ~encrypted_frame_size =
 ;;
 
 let assign_ssrc_to_codec t ~ssrc ~codec =
-  Dave.Encryptor.assign_ssrc_to_codec t.encryptor ~ssrc ~codec
-;;
-
-let destroy t =
-  Dave.Encryptor.destroy t.encryptor;
-  Dave.Decryptor.destroy t.decryptor;
-  Pipe.close t.outgoing_writer
+  let%with () = run_if_not_closed t in
+  Dave.Encryptor.assign_ssrc_to_codec
+    t.encryptor
+    ~ssrc:(Model.Ssrc.to_int_exn ssrc)
+    ~codec
 ;;

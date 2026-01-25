@@ -236,9 +236,10 @@ let close_voice_udp t =
 ;;
 
 let close t =
+  [%log.info [%here] "Closing..." ~guild_id:(t.guild_id : Model.Guild_id.t)];
+  Dave_session.close t.dave_session;
   let%bind () = close_voice_udp t in
   let%bind () = disconnect t in
-  Dave_session.destroy t.dave_session;
   return ()
 ;;
 
@@ -314,13 +315,9 @@ let handle_session_description
   match t.state with
   | Connected ({ state = Waiting_for_session_description { voice_udp }; _ } as connected)
     ->
-    (* Initialize DAVE session with protocol version *)
+    let ssrc = Voice_udp.ssrc voice_udp in
     Dave_session.on_session_description t.dave_session ~dave_protocol_version;
-    let ssrc = Voice_udp.ssrc voice_udp |> Model.Ssrc.to_int_exn in
-    Dave_session.assign_ssrc_to_codec t.dave_session ~ssrc ~codec:Dave.Codec.Opus;
-    let secret_key =
-      List.of_array secret_key |> List.map ~f:Char.of_int_exn |> Bytes.of_char_list
-    in
+    Dave_session.assign_ssrc_to_codec t.dave_session ~ssrc ~codec:Opus;
     let dave_encrypt =
       if dave_protocol_version > 0
       then
@@ -331,6 +328,9 @@ let handle_session_description
              ~get_max_ciphertext_byte_size:(fun ~frame_size ->
                Dave_session.get_max_ciphertext_byte_size t.dave_session ~frame_size))
       else None
+    in
+    let secret_key =
+      List.of_array secret_key |> List.map ~f:Char.of_int_exn |> Bytes.of_char_list
     in
     let frames_writer = Voice_udp.frames_writer voice_udp ~secret_key ?dave_encrypt () in
     connected.state <- Ready_to_send { frames_writer };
@@ -357,73 +357,6 @@ let handle_heartbeat_ack t =
         "Ignoring [Heartbeat_ack] in unexpected state"
         ~guild_id:(t.guild_id : Model.Guild_id.t)
         (state : State.t)]
-;;
-
-let handle_dave_protocol_prepare_transition
-  t
-  { Model.Voice_gateway.Event.Dave_protocol_prepare_transition.transition_id
-  ; protocol_version
-  }
-  =
-  Dave_session.on_dave_protocol_prepare_transition
-    t.dave_session
-    ~transition_id
-    ~protocol_version
-;;
-
-let handle_dave_protocol_execute_transition
-  t
-  { Model.Voice_gateway.Event.Dave_protocol_execute_transition.transition_id }
-  =
-  Dave_session.on_dave_protocol_execute_transition t.dave_session ~transition_id
-;;
-
-let handle_dave_protocol_prepare_epoch
-  t
-  { Model.Voice_gateway.Event.Dave_protocol_prepare_epoch.epoch; protocol_version }
-  =
-  Dave_session.on_dave_protocol_prepare_epoch t.dave_session ~epoch ~protocol_version
-;;
-
-let handle_clients_connect t { Model.Voice_gateway.Event.Clients_connect.user_ids } =
-  [%log.debug
-    [%here]
-      "Clients connected to voice"
-      ~guild_id:(t.guild_id : Model.Guild_id.t)
-      (user_ids : string list)];
-  List.iter user_ids ~f:(fun user_id ->
-    Dave_session.create_user t.dave_session ~user_id)
-;;
-
-let handle_client_disconnect t { Model.Voice_gateway.Event.Client_disconnect.user_id } =
-  [%log.debug
-    [%here]
-      "Client disconnected from voice"
-      ~guild_id:(t.guild_id : Model.Guild_id.t)
-      (user_id : string)];
-  Dave_session.destroy_user t.dave_session ~user_id
-;;
-
-let handle_mls_external_sender_package
-  t
-  { Model.Voice_gateway.Event.Mls_external_sender_package.external_sender_package }
-  =
-  Dave_session.on_mls_external_sender_package t.dave_session ~external_sender_package
-;;
-
-let handle_mls_proposals t { Model.Voice_gateway.Event.Mls_proposals.proposals } =
-  Dave_session.on_mls_proposals t.dave_session ~proposals
-;;
-
-let handle_mls_prepare_commit_transition
-  t
-  { Model.Voice_gateway.Event.Mls_prepare_commit_transition.transition_id; commit }
-  =
-  Dave_session.on_mls_prepare_commit_transition t.dave_session ~transition_id ~commit
-;;
-
-let handle_mls_welcome t { Model.Voice_gateway.Event.Mls_welcome.transition_id; welcome } =
-  Dave_session.on_mls_welcome t.dave_session ~transition_id ~welcome
 ;;
 
 let rec schedule_heartbeat t ~heartbeat_interval =
@@ -493,35 +426,35 @@ and handle_event t (event : Model.Voice_gateway.Event.Receivable.t) =
   | Session_description session_description ->
     handle_session_description t session_description;
     return ()
-  | Clients_connect clients_connect ->
-    handle_clients_connect t clients_connect;
-    return ()
-  | Client_disconnect client_disconnect ->
-    handle_client_disconnect t client_disconnect;
-    return ()
   | Heartbeat_ack { nonce = _ } ->
     handle_heartbeat_ack t;
     return ()
+  | Clients_connect clients_connect ->
+    Dave_session.on_clients_connect t.dave_session clients_connect;
+    return ()
+  | Client_disconnect client_disconnect ->
+    Dave_session.on_client_disconnect t.dave_session client_disconnect;
+    return ()
   | Dave_protocol_prepare_transition prepare_transition ->
-    handle_dave_protocol_prepare_transition t prepare_transition;
+    Dave_session.on_dave_protocol_prepare_transition t.dave_session prepare_transition;
     return ()
   | Dave_protocol_execute_transition execute_transition ->
-    handle_dave_protocol_execute_transition t execute_transition;
+    Dave_session.on_dave_protocol_execute_transition t.dave_session execute_transition;
     return ()
   | Dave_protocol_prepare_epoch prepare_epoch ->
-    handle_dave_protocol_prepare_epoch t prepare_epoch;
+    Dave_session.on_dave_protocol_prepare_epoch t.dave_session prepare_epoch;
     return ()
   | Mls_external_sender_package external_sender ->
-    handle_mls_external_sender_package t external_sender;
+    Dave_session.on_mls_external_sender_package t.dave_session external_sender;
     return ()
   | Mls_proposals proposals ->
-    handle_mls_proposals t proposals;
+    Dave_session.on_mls_proposals t.dave_session proposals;
     return ()
   | Mls_prepare_commit_transition prepare_commit ->
-    handle_mls_prepare_commit_transition t prepare_commit;
+    Dave_session.on_mls_prepare_commit_transition t.dave_session prepare_commit;
     return ()
   | Mls_welcome welcome ->
-    handle_mls_welcome t welcome;
+    Dave_session.on_mls_welcome t.dave_session welcome;
     return ()
   | Unknown event ->
     [%log.debug

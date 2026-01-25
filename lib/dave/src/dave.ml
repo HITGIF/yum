@@ -146,6 +146,8 @@ module Session = struct
     create null null on_error null
   ;;
 
+  let destroy = destroy
+
   let init t ~version ~group_id ~self_user_id =
     init t (to_u16 version) (to_u64 group_id) self_user_id
   ;;

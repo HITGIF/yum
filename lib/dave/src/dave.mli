@@ -40,9 +40,10 @@ module Key_ratchet : sig
 end
 
 module Session : sig
-  type t
+  type nonrec t
 
   val create : on_error:(source:string -> reason:string -> unit) -> t
+  val destroy : t -> unit
   val init : t -> version:int -> group_id:int -> self_user_id:string -> unit
   val reset : t -> unit
   val set_protocol_version : t -> version:int -> unit
