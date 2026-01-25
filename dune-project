@@ -2,7 +2,9 @@
 
 (name yum)
 
-(generate_opam_files false)
+(generate_opam_files
+ ; cohttp_async_websocket is pinned
+ false)
 
 (source
  (github hitgif/yum))
