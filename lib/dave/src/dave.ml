@@ -128,8 +128,8 @@ module Session = struct
   ;;
 
   let reset = reset
-  let set_protocol_version t ~version = set_protocol_version t (to_u64 version)
-  let get_protocol_version t = get_protocol_version t |> of_u64
+  let set_protocol_version t ~version = set_protocol_version t (to_u16 version)
+  let get_protocol_version t = get_protocol_version t |> of_u16
 
   let set_external_sender t external_sender =
     set_external_sender

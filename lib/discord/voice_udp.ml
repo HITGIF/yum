@@ -134,11 +134,11 @@ module State = struct
 
   let create ~on_change = { state = Not_playing; on_change }
 
-  let start t =
+  let start t ~sent_frames =
     match t.state with
     | Playing _ -> return ()
     | Not_playing ->
-      t.state <- Playing { start_time = Time_ns.now (); sent_frames = 0 };
+      t.state <- Playing { start_time = Time_ns.now (); sent_frames };
       t.on_change `Playing
   ;;
 
@@ -167,7 +167,7 @@ module State = struct
 
   let on_sending_frames t ~num_frames =
     match t.state with
-    | Not_playing -> start t
+    | Not_playing -> start t ~sent_frames:num_frames
     | Playing ({ start_time; sent_frames } as playing) ->
       let expected_elapsed =
         Time_ns.Span.(scale_int Audio.Pcm_frame.frame_duration sent_frames)
