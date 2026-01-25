@@ -95,6 +95,9 @@ module Uri = struct
 end
 
 module Ssrc = Intable_extended.Make ()
+module Dave_transition_id = Intable_extended.Make ()
+module Dave_epoch = Intable_extended.Make ()
+module Dave_protocol_version = Intable_extended.Make ()
 
 module Intents = struct
   include Intable_extended.Make ()
@@ -198,7 +201,7 @@ module Message = struct
   [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 end
 
-module Encryption_mode = struct
+module Tls_encryption_mode = struct
   type t =
     [ `Aead_xchacha20_poly1305_rtpsize
     | `Unsupported of Json.t
@@ -245,7 +248,9 @@ module Gateway = struct
       type t = { heartbeat_interval : Time_ns.Span.t } [@@deriving sexp_of]
 
       let of_protocol_or_error event =
-        let%bind.Or_error data = Websocket_protocol.Gateway.Event.data_or_error event in
+        let%bind.Or_error data =
+          Websocket_protocol.Gateway.Event.data_json_or_error event
+        in
         match Yojson.Safe.Util.member "heartbeat_interval" data with
         | `Int heartbeat_interval ->
           Ok { heartbeat_interval = Time_ns.Span.of_int_ms heartbeat_interval }
@@ -259,7 +264,7 @@ module Gateway = struct
       let to_protocol t =
         let data =
           let%map.Option seq_num = t.last_seq_num in
-          `Int (Websocket_protocol.Seq_num.to_int_exn seq_num)
+          `Int (Websocket_protocol.Seq_num.to_int_exn seq_num) |> Json.to_string
         in
         Websocket_protocol.Gateway.Event.create ?data Heartbeat
       ;;
@@ -283,7 +288,7 @@ module Gateway = struct
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let to_protocol t =
-        let data = [%yojson_of: t] t in
+        let data = [%yojson_of: t] t |> Json.to_string in
         Websocket_protocol.Gateway.Event.create ~data Identify
       ;;
     end
@@ -352,7 +357,9 @@ module Gateway = struct
       let of_protocol_or_error event =
         let%with () = Or_error.try_with_join in
         let%bind.Or_error name = Websocket_protocol.Gateway.Event.name_or_error event in
-        let%map.Or_error data = Websocket_protocol.Gateway.Event.data_or_error event in
+        let%map.Or_error data =
+          Websocket_protocol.Gateway.Event.data_json_or_error event
+        in
         match
           Or_error.try_with (fun () -> `List [ `String name; data ] |> [%of_yojson: t])
         with
@@ -371,8 +378,8 @@ module Gateway = struct
 
       let of_protocol event =
         let resumable =
-          match Websocket_protocol.Gateway.Event.data event with
-          | Some (`Bool resumable) -> resumable
+          match Websocket_protocol.Gateway.Event.data_json_or_error event with
+          | Ok (`Bool resumable) -> resumable
           | _ -> false
         in
         { resumable }
@@ -388,7 +395,7 @@ module Gateway = struct
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let to_protocol t =
-        let data = [%yojson_of: t] t in
+        let data = [%yojson_of: t] t |> Json.to_string in
         Websocket_protocol.Gateway.Event.create ~data Resume
       ;;
     end
@@ -403,7 +410,7 @@ module Gateway = struct
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let to_protocol t =
-        let data = [%yojson_of: t] t in
+        let data = [%yojson_of: t] t |> Json.to_string in
         Websocket_protocol.Gateway.Event.create ~data Voice_state_update
       ;;
     end
@@ -484,12 +491,12 @@ module Voice_gateway = struct
         ; user_id : User_id.t
         ; session_id : Voice_gateway_session_id.t
         ; token : Voice_connection_token.t
-        ; max_dave_protocol_version : int
+        ; max_dave_protocol_version : Dave_protocol_version.t
         }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let to_protocol t =
-        let data = [%yojson_of: t] t in
+        let data = [%yojson_of: t] t |> Json.to_string in
         Websocket_protocol.Voice_gateway.Event.create ~data Identify
       ;;
     end
@@ -499,13 +506,13 @@ module Voice_gateway = struct
         { ssrc : Ssrc.t
         ; ip : string
         ; port : int
-        ; modes : Encryption_mode.t list
+        ; modes : Tls_encryption_mode.t list
         }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let of_protocol_or_error event =
         let%bind.Or_error data =
-          Websocket_protocol.Voice_gateway.Event.data_or_error event
+          Websocket_protocol.Voice_gateway.Event.data_json_or_error event
         in
         Or_error.try_with (fun () -> [%of_yojson: t] data)
       ;;
@@ -516,7 +523,7 @@ module Voice_gateway = struct
 
       let of_protocol_or_error event =
         let%bind.Or_error data =
-          Websocket_protocol.Voice_gateway.Event.data_or_error event
+          Websocket_protocol.Voice_gateway.Event.data_json_or_error event
         in
         match Yojson.Safe.Util.member "heartbeat_interval" data with
         | `Int heartbeat_interval ->
@@ -533,7 +540,7 @@ module Voice_gateway = struct
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let to_protocol t =
-        let data = [%yojson_of: t] t in
+        let data = [%yojson_of: t] t |> Json.to_string in
         Websocket_protocol.Voice_gateway.Event.create ~data Heartbeat
       ;;
     end
@@ -544,7 +551,7 @@ module Voice_gateway = struct
 
       let of_protocol_or_error event =
         let%bind.Or_error data =
-          Websocket_protocol.Voice_gateway.Event.data_or_error event
+          Websocket_protocol.Voice_gateway.Event.data_json_or_error event
         in
         Or_error.try_with (fun () -> [%of_yojson: t] data)
       ;;
@@ -555,7 +562,7 @@ module Voice_gateway = struct
         type t =
           { address : string
           ; port : int
-          ; mode : Encryption_mode.t
+          ; mode : Tls_encryption_mode.t
           }
         [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
       end
@@ -567,7 +574,7 @@ module Voice_gateway = struct
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let to_protocol t =
-        let data = [%yojson_of: t] t in
+        let data = [%yojson_of: t] t |> Json.to_string in
         Websocket_protocol.Voice_gateway.Event.create ~data Select_protocol
       ;;
     end
@@ -582,22 +589,22 @@ module Voice_gateway = struct
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let to_protocol t =
-        let data = [%yojson_of: t] t in
+        let data = [%yojson_of: t] t |> Json.to_string in
         Websocket_protocol.Voice_gateway.Event.create ~data Resume
       ;;
     end
 
     module Session_description = struct
       type t =
-        { mode : Encryption_mode.t
+        { mode : Tls_encryption_mode.t
         ; secret_key : int array
-        ; dave_protocol_version : int
+        ; dave_protocol_version : Dave_protocol_version.t
         }
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let of_protocol_or_error event =
         let%bind.Or_error data =
-          Websocket_protocol.Voice_gateway.Event.data_or_error event
+          Websocket_protocol.Voice_gateway.Event.data_json_or_error event
         in
         Or_error.try_with (fun () -> [%of_yojson: t] data)
       ;;
@@ -612,8 +619,178 @@ module Voice_gateway = struct
       [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
 
       let to_protocol t =
-        let data = [%yojson_of: t] t in
+        let data = [%yojson_of: t] t |> Json.to_string in
         Websocket_protocol.Voice_gateway.Event.create ~data Speaking
+      ;;
+    end
+
+    module Clients_connect = struct
+      type t = { user_ids : User_id.t list }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+
+      let of_protocol_or_error event =
+        let%bind.Or_error data =
+          Websocket_protocol.Voice_gateway.Event.data_json_or_error event
+        in
+        Or_error.try_with (fun () -> [%of_yojson: t] data)
+      ;;
+    end
+
+    module Client_disconnect = struct
+      type t = { user_id : User_id.t }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+
+      let of_protocol_or_error event =
+        let%bind.Or_error data =
+          Websocket_protocol.Voice_gateway.Event.data_json_or_error event
+        in
+        Or_error.try_with (fun () -> [%of_yojson: t] data)
+      ;;
+    end
+
+    module Dave_protocol_prepare_transition = struct
+      type t =
+        { transition_id : Dave_transition_id.t
+        ; protocol_version : Dave_protocol_version.t
+        }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+
+      let of_protocol_or_error event =
+        let%bind.Or_error data =
+          Websocket_protocol.Voice_gateway.Event.data_json_or_error event
+        in
+        Or_error.try_with (fun () -> [%of_yojson: t] data)
+      ;;
+    end
+
+    module Dave_protocol_execute_transition = struct
+      type t = { transition_id : Dave_transition_id.t }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+
+      let of_protocol_or_error event =
+        let%bind.Or_error data =
+          Websocket_protocol.Voice_gateway.Event.data_json_or_error event
+        in
+        Or_error.try_with (fun () -> [%of_yojson: t] data)
+      ;;
+    end
+
+    module Dave_protocol_ready_for_transition = struct
+      type t = { transition_id : Dave_transition_id.t }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+
+      let to_protocol t =
+        let data = [%yojson_of: t] t |> Json.to_string in
+        Websocket_protocol.Voice_gateway.Event.create
+          ~data
+          Dave_protocol_ready_for_transition
+      ;;
+    end
+
+    module Dave_protocol_prepare_epoch = struct
+      type t =
+        { epoch : Dave_epoch.t
+        ; protocol_version : Dave_protocol_version.t
+        }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+
+      let of_protocol_or_error event =
+        let%bind.Or_error data =
+          Websocket_protocol.Voice_gateway.Event.data_json_or_error event
+        in
+        Or_error.try_with (fun () -> [%of_yojson: t] data)
+      ;;
+    end
+
+    module Mls_external_sender_package = struct
+      type t = { external_sender_package : (string[@sexp.opaque]) }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of]
+
+      let of_protocol_or_error event =
+        let%map.Or_error external_sender_package =
+          Websocket_protocol.Voice_gateway.Event.data_or_error event
+        in
+        { external_sender_package }
+      ;;
+    end
+
+    module Mls_key_package = struct
+      type t = { key_package : (string[@sexp.opaque]) }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of]
+
+      let to_protocol { key_package = data } =
+        Websocket_protocol.Voice_gateway.Event.create ~data Mls_key_package
+      ;;
+    end
+
+    module Mls_proposals = struct
+      type t = { proposals : (string[@sexp.opaque]) }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of]
+
+      let of_protocol_or_error event =
+        let%map.Or_error proposals =
+          Websocket_protocol.Voice_gateway.Event.data_or_error event
+        in
+        { proposals }
+      ;;
+    end
+
+    module Mls_commit_welcome = struct
+      type t = { commit_welcome : (string[@sexp.opaque]) }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of]
+
+      let to_protocol { commit_welcome = data } =
+        Websocket_protocol.Voice_gateway.Event.create ~data Mls_commit_welcome
+      ;;
+    end
+
+    module Mls_announce_commit_transition = struct
+      type t =
+        { transition_id : Dave_transition_id.t
+        ; commit : (string[@sexp.opaque])
+        }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of]
+
+      let of_protocol_or_error event =
+        let%map.Or_error data =
+          Websocket_protocol.Voice_gateway.Event.data_or_error event
+        in
+        let iobuf = Iobuf.of_string data in
+        let transition_id =
+          Iobuf.Consume.uint16_be iobuf |> Dave_transition_id.of_int_exn
+        in
+        let commit = Iobuf.Consume.stringo iobuf in
+        { transition_id; commit }
+      ;;
+    end
+
+    module Mls_welcome = struct
+      type t =
+        { transition_id : Dave_transition_id.t
+        ; welcome : (string[@sexp.opaque])
+        }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of]
+
+      let of_protocol_or_error event =
+        let%map.Or_error data =
+          Websocket_protocol.Voice_gateway.Event.data_or_error event
+        in
+        let iobuf = Iobuf.of_string data in
+        let transition_id =
+          Iobuf.Consume.uint16_be iobuf |> Dave_transition_id.of_int_exn
+        in
+        let welcome = Iobuf.Consume.stringo iobuf in
+        { transition_id; welcome }
+      ;;
+    end
+
+    module Mls_invalid_commit_welcome = struct
+      type t = { transition_id : Dave_transition_id.t }
+      [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+
+      let to_protocol t =
+        let data = [%yojson_of: t] t |> Json.to_string in
+        Websocket_protocol.Voice_gateway.Event.create ~data Mls_invalid_commit_welcome
       ;;
     end
 
@@ -623,6 +800,15 @@ module Voice_gateway = struct
         | Hello of Hello.t
         | Heartbeat_ack of Heartbeat_ack.t
         | Session_description of Session_description.t
+        | Clients_connect of Clients_connect.t
+        | Client_disconnect of Client_disconnect.t
+        | Dave_protocol_prepare_transition of Dave_protocol_prepare_transition.t
+        | Dave_protocol_execute_transition of Dave_protocol_execute_transition.t
+        | Dave_protocol_prepare_epoch of Dave_protocol_prepare_epoch.t
+        | Mls_external_sender_package of Mls_external_sender_package.t
+        | Mls_proposals of Mls_proposals.t
+        | Mls_announce_commit_transition of Mls_announce_commit_transition.t
+        | Mls_welcome of Mls_welcome.t
         | Unknown of Websocket_protocol.Voice_gateway.Event.t
       [@@deriving sexp_of, variants]
 
@@ -634,6 +820,27 @@ module Voice_gateway = struct
         | Heartbeat_ack -> Heartbeat_ack.of_protocol_or_error event >>| heartbeat_ack
         | Session_description ->
           Session_description.of_protocol_or_error event >>| session_description
+        | Clients_connect ->
+          Clients_connect.of_protocol_or_error event >>| clients_connect
+        | Client_disconnect ->
+          Client_disconnect.of_protocol_or_error event >>| client_disconnect
+        | Dave_protocol_prepare_transition ->
+          Dave_protocol_prepare_transition.of_protocol_or_error event
+          >>| dave_protocol_prepare_transition
+        | Dave_protocol_execute_transition ->
+          Dave_protocol_execute_transition.of_protocol_or_error event
+          >>| dave_protocol_execute_transition
+        | Dave_protocol_prepare_epoch ->
+          Dave_protocol_prepare_epoch.of_protocol_or_error event
+          >>| dave_protocol_prepare_epoch
+        | Mls_external_sender_package ->
+          Mls_external_sender_package.of_protocol_or_error event
+          >>| mls_external_sender_package
+        | Mls_proposals -> Mls_proposals.of_protocol_or_error event >>| mls_proposals
+        | Mls_announce_commit_transition ->
+          Mls_announce_commit_transition.of_protocol_or_error event
+          >>| mls_announce_commit_transition
+        | Mls_welcome -> Mls_welcome.of_protocol_or_error event >>| mls_welcome
         | Unknown _ -> Unknown event |> Ok
         | Identify
         | Heartbeat
@@ -641,8 +848,10 @@ module Voice_gateway = struct
         | Speaking
         | Resume
         | Resumed
-        | Clients_connect
-        | Client_disconnect ->
+        | Dave_protocol_ready_for_transition
+        | Mls_key_package
+        | Mls_commit_welcome
+        | Mls_invalid_commit_welcome ->
           Or_error.error_s
             [%message
               "Event with unsupported op code"
@@ -657,6 +866,10 @@ module Voice_gateway = struct
         | Select_protocol of Select_protocol.t
         | Resume of Resume.t
         | Speaking of Speaking.t
+        | Dave_protocol_ready_for_transition of Dave_protocol_ready_for_transition.t
+        | Mls_key_package of Mls_key_package.t
+        | Mls_commit_welcome of Mls_commit_welcome.t
+        | Mls_invalid_commit_welcome of Mls_invalid_commit_welcome.t
       [@@deriving sexp_of]
 
       let to_protocol = function
@@ -665,6 +878,13 @@ module Voice_gateway = struct
         | Select_protocol select_protocol -> Select_protocol.to_protocol select_protocol
         | Resume resume -> Resume.to_protocol resume
         | Speaking speaking -> Speaking.to_protocol speaking
+        | Dave_protocol_ready_for_transition ready ->
+          Dave_protocol_ready_for_transition.to_protocol ready
+        | Mls_key_package key_package -> Mls_key_package.to_protocol key_package
+        | Mls_commit_welcome commit_welcome ->
+          Mls_commit_welcome.to_protocol commit_welcome
+        | Mls_invalid_commit_welcome invalid ->
+          Mls_invalid_commit_welcome.to_protocol invalid
       ;;
     end
   end

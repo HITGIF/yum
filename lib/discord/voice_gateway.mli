@@ -20,6 +20,7 @@ val create
   -> session_id:Model.Voice_gateway_session_id.t
   -> user_id:Model.User_id.t
   -> reincarnate:(unit -> unit Deferred.t)
+  -> get_users_in_channel:(unit -> Model.User_id.t list)
   -> unit
   -> t
 

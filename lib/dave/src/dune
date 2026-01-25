@@ -1,0 +1,19 @@
+(library
+ (name dave)
+ (preprocess
+  (pps ppx_jane))
+ (libraries async_log core bindings_core ctypes.stubs ctypes dave_bindings)
+ (foreign_stubs
+  (language c)
+  (names dave_stubs)
+  (flags
+   (:standard \ -Werror -pedantic -Wall -Wunused)
+   -w))
+ (c_library_flags :standard -ldave))
+
+(rule
+ (targets dave_generated.ml dave_stubs.c)
+ (deps
+  (:first_dep ../gen/dave_gen.exe))
+ (action
+  (bash ./%{first_dep})))

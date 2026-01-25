@@ -24,7 +24,8 @@ module State = struct
         | Waiting_for_ready
         | Waiting_for_session_description of { voice_udp : (Voice_udp.t[@sexp.opaque]) }
         | Ready_to_send of
-            { frames_writer : (Audio.Pcm_frame.t Base.Queue.t Pipe.Writer.t[@sexp.opaque])
+            { dave_session : (Dave_session.t[@sexp.opaque])
+            ; frames_writer : (Audio.Pcm_frame.t Base.Queue.t Pipe.Writer.t[@sexp.opaque])
             }
       [@@deriving sexp_of]
     end
@@ -35,7 +36,7 @@ module State = struct
       ; mutable last_heartbeat_acked : bool
       ; heartbeating : unit Set_once.t
       ; created_at : Time_ns.t
-      ; ws : (string Websocket.t[@sexp.opaque])
+      ; ws : (Websocket.Frame_content.t Websocket.t[@sexp.opaque])
       }
     [@@deriving sexp_of]
 
@@ -69,6 +70,7 @@ type t =
   ; reincarnate : unit -> unit Deferred.t
   ; events_reader : Event.t Pipe.Reader.t
   ; events_writer : Event.t Pipe.Writer.t
+  ; get_users_in_channel : unit -> Model.User_id.t list
   }
 [@@deriving fields ~getters]
 
@@ -81,6 +83,7 @@ let create
   ~session_id
   ~user_id
   ~reincarnate
+  ~get_users_in_channel
   ()
   =
   let time_source =
@@ -100,6 +103,7 @@ let create
   ; reincarnate
   ; events_reader
   ; events_writer
+  ; get_users_in_channel
   }
 ;;
 
@@ -109,7 +113,7 @@ let emit t event = Pipe.write_without_pushback_if_open t.events_writer event
 let write_if_connected t event =
   match t.state with
   | Disconnected ->
-    [%log.error
+    [%log.info
       [%here]
         "Ignoring write when disconnected"
         ~guild_id:(t.guild_id : Model.Guild_id.t)
@@ -118,10 +122,8 @@ let write_if_connected t event =
   | Connected connected ->
     (match%map
        Deferred.Or_error.try_with_join (fun () ->
-         event
-         |> Model.Voice_gateway.Event.Sendable.to_protocol
-         |> [%yojson_of: Websocket_protocol.Voice_gateway.Event.t]
-         |> Json.to_string
+         Model.Voice_gateway.Event.Sendable.to_protocol event
+         |> Websocket_protocol.Voice_gateway.Event.to_frame_content
          |> Pipe.write_if_open (Websocket.writer connected.ws)
          |> Deferred.ok)
      with
@@ -152,9 +154,7 @@ let send_identify t =
        ; server_id = t.guild_id
        ; session_id = t.session_id
        ; user_id = t.user_id
-       ; max_dave_protocol_version =
-           (Todo.support_dave_protocol;
-            0)
+       ; max_dave_protocol_version = Dave_session.max_supported_protocol_version
        })
 ;;
 
@@ -186,16 +186,18 @@ let disconnect t =
     return ()
 ;;
 
-let close_voice_udp t =
+let close_connected t =
   match t.state with
-  | Connected { state = Ready_to_send { frames_writer }; _ } ->
+  | Connected { state = Ready_to_send { frames_writer; dave_session }; _ } ->
+    Dave_session.close dave_session;
     Pipe.close frames_writer;
     Pipe.closed frames_writer
   | _ -> return ()
 ;;
 
 let close t =
-  let%bind () = close_voice_udp t in
+  [%log.info [%here] "Closing..." ~guild_id:(t.guild_id : Model.Guild_id.t)];
+  let%bind () = close_connected t in
   let%bind () = disconnect t in
   return ()
 ;;
@@ -206,7 +208,10 @@ let reincarnate t =
   t.reincarnate ()
 ;;
 
-let handle_ready t { Model.Voice_gateway.Event.Ready.ssrc; ip; port; modes } =
+let handle_ready
+  t
+  { Model.Voice_gateway.Event.Ready.ssrc; ip; port; modes = tls_encryption_modes }
+  =
   match t.state with
   | Connected ({ state = Waiting_for_ready; _ } as connected) ->
     [%log.info
@@ -220,7 +225,7 @@ let handle_ready t { Model.Voice_gateway.Event.Ready.ssrc; ip; port; modes } =
         ~ssrc
         ~ip
         ~port
-        ~encryption_modes:modes
+        ~tls_encryption_modes
         ~send_speaking:(send_speaking t)
       >>| Or_error.ok_exn
     in
@@ -247,7 +252,7 @@ let handle_ready t { Model.Voice_gateway.Event.Ready.ssrc; ip; port; modes } =
               ; data =
                   { address = my_ip
                   ; port = my_port
-                  ; mode = Voice_udp.encryption_mode voice_udp
+                  ; mode = Voice_udp.tls_encryption_mode voice_udp
                   }
               })
        in
@@ -264,20 +269,49 @@ let handle_ready t { Model.Voice_gateway.Event.Ready.ssrc; ip; port; modes } =
 
 let handle_session_description
   t
-  { Model.Voice_gateway.Event.Session_description.secret_key
-  ; mode = _
-  ; dave_protocol_version = _
+  { Model.Voice_gateway.Event.Session_description.secret_key = tls_secret_key
+  ; mode = tls_encryption_mode
+  ; dave_protocol_version
   }
   =
   match t.state with
   | Connected ({ state = Waiting_for_session_description { voice_udp }; _ } as connected)
     ->
-    let secret_key =
-      List.of_array secret_key |> List.map ~f:Char.of_int_exn |> Bytes.of_char_list
+    if not
+         ([%equal: Model.Tls_encryption_mode.t]
+            tls_encryption_mode
+            (Voice_udp.tls_encryption_mode voice_udp))
+    then
+      Error.raise_s
+        [%message
+          [%here]
+            "TLS encryption mode mismatch"
+            ~guild_id:(t.guild_id : Model.Guild_id.t)
+            ~actual:(tls_encryption_mode : Model.Tls_encryption_mode.t)
+            ~expected:
+              (Voice_udp.tls_encryption_mode voice_udp : Model.Tls_encryption_mode.t)];
+    let ssrc = Voice_udp.ssrc voice_udp in
+    let dave_session, events_reader =
+      Dave_session.create
+        ~user_id:t.user_id
+        ~channel_id:t.channel_id
+        ~users_in_channel:(t.get_users_in_channel ())
     in
-    let frames_writer = Voice_udp.frames_writer voice_udp ~secret_key in
-    connected.state <- Ready_to_send { frames_writer };
-    [%log.debug [%here] "Ready to send" ~guild_id:(t.guild_id : Model.Guild_id.t)];
+    don't_wait_for (Pipe.iter events_reader ~f:(write_if_connected t));
+    Dave_session.on_session_description dave_session dave_protocol_version;
+    Dave_session.assign_ssrc_to_codec dave_session ~ssrc ~codec:Opus;
+    let frames_writer =
+      let tls_secret_key =
+        List.of_array tls_secret_key |> List.map ~f:Char.of_int_exn |> Bytes.of_char_list
+      in
+      Voice_udp.frames_writer voice_udp ~tls_secret_key ~dave_session
+    in
+    connected.state <- Ready_to_send { frames_writer; dave_session };
+    [%log.debug
+      [%here]
+        "Ready to send"
+        ~guild_id:(t.guild_id : Model.Guild_id.t)
+        (dave_protocol_version : Model.Dave_protocol_version.t)];
     emit t (Voice_ready { channel_id = t.channel_id; frames_writer })
   | state ->
     [%log.error
@@ -285,6 +319,12 @@ let handle_session_description
         "Ignoring [Session_description] in unexpected state"
         ~guild_id:(t.guild_id : Model.Guild_id.t)
         (state : State.t)]
+;;
+
+let with_dave_session t f =
+  match t.state with
+  | Connected { state = Ready_to_send { dave_session; _ }; _ } -> f dave_session
+  | _ -> return ()
 ;;
 
 let handle_heartbeat_ack t =
@@ -368,16 +408,51 @@ and handle_event t (event : Model.Voice_gateway.Event.Receivable.t) =
   | Heartbeat_ack { nonce = _ } ->
     handle_heartbeat_ack t;
     return ()
+  | Clients_connect clients_connect ->
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_clients_connect dave_session clients_connect;
+    return ()
+  | Client_disconnect client_disconnect ->
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_client_disconnect dave_session client_disconnect;
+    return ()
+  | Dave_protocol_prepare_transition prepare_transition ->
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_dave_protocol_prepare_transition dave_session prepare_transition;
+    return ()
+  | Dave_protocol_execute_transition execute_transition ->
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_dave_protocol_execute_transition dave_session execute_transition;
+    return ()
+  | Dave_protocol_prepare_epoch prepare_epoch ->
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_dave_protocol_prepare_epoch dave_session prepare_epoch;
+    return ()
+  | Mls_external_sender_package external_sender ->
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_mls_external_sender_package dave_session external_sender;
+    return ()
+  | Mls_proposals proposals ->
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_mls_proposals dave_session proposals;
+    return ()
+  | Mls_announce_commit_transition prepare_commit ->
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_mls_announce_commit_transition dave_session prepare_commit;
+    return ()
+  | Mls_welcome welcome ->
+    let%with dave_session = with_dave_session t in
+    Dave_session.on_mls_welcome dave_session welcome;
+    return ()
   | Unknown event ->
     [%log.debug
       [%here] "Received unknown event" (event : Websocket_protocol.Voice_gateway.Event.t)];
     return ()
 
-and read_event t payload =
+and read_event t frame =
   match
     let%bind.Or_error protocol =
-      Or_error.try_with (fun () ->
-        Json.from_string payload |> [%of_yojson: Websocket_protocol.Voice_gateway.Event.t])
+      Websocket_protocol.Voice_gateway.Event.of_frame_content_or_error frame
     in
     (match Websocket_protocol.Voice_gateway.Event.seq_num protocol, t.state with
      | None, _ | _, Disconnected -> ()
@@ -393,12 +468,12 @@ and read_event t payload =
     let%bind () = handle_event t event in
     return ()
   | Error error ->
-    [%log.error
+    [%log.debug
       [%here]
         "Failed to receive event"
         ~guild_id:(t.guild_id : Model.Guild_id.t)
-        (payload : string)
-        (error : Error.t)];
+        (error : Error.t)
+        (frame : Websocket.Frame_content.t)];
     return ()
 
 and handle_new_connection t state ws =
@@ -452,7 +527,7 @@ and resume t =
       let%bind () = disconnect t in
       [%log.info [%here] "Resuming..." ~guild_id:(t.guild_id : Model.Guild_id.t)];
       let%bind.Deferred.Or_error response, ws =
-        Cohttp_async_websocket.Client.create (formulate_url t.endpoint)
+        Cohttp_async_websocket.Client.create' (formulate_url t.endpoint)
       in
       [%log.info [%here] "Reconnected" ~guild_id:(t.guild_id : Model.Guild_id.t)];
       [%log.debug [%here] (response : Cohttp.Response.t)];
@@ -490,7 +565,7 @@ and connect t =
     let retry_after = Time_ns.Span.of_int_sec 5 in
     let%bind.Deferred.Or_error response, ws =
       Deferred.repeat_until_finished () (fun () ->
-        match%bind Cohttp_async_websocket.Client.create (formulate_url t.endpoint) with
+        match%bind Cohttp_async_websocket.Client.create' (formulate_url t.endpoint) with
         | Ok _ as result -> return (`Finished result)
         | Error connection_error ->
           (match Attempt.try_ attempt with

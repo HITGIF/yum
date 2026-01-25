@@ -1,0 +1,6 @@
+(executables
+ (modes byte exe)
+ (names dave_gen)
+ (preprocess
+  (pps ppx_jane))
+ (libraries dave_bindings ctypes ctypes.stubs))

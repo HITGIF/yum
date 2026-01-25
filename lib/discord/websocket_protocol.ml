@@ -76,6 +76,8 @@ module Op_code = struct
       | n -> Unknown n
     ;;
 
+    let frame_content = Fn.const `Text
+
     include functor Make
   end
 
@@ -93,6 +95,17 @@ module Op_code = struct
       | Resumed
       | Clients_connect
       | Client_disconnect
+      | Dave_protocol_prepare_transition
+      | Dave_protocol_execute_transition
+      | Dave_protocol_ready_for_transition
+      | Dave_protocol_prepare_epoch
+      | Mls_external_sender_package
+      | Mls_key_package
+      | Mls_proposals
+      | Mls_commit_welcome
+      | Mls_announce_commit_transition
+      | Mls_welcome
+      | Mls_invalid_commit_welcome
       | Unknown of Unknown.t
     [@@deriving equal, sexp_of, quickcheck]
 
@@ -109,6 +122,17 @@ module Op_code = struct
       | Resumed -> 9
       | Clients_connect -> 11
       | Client_disconnect -> 13
+      | Dave_protocol_prepare_transition -> 21
+      | Dave_protocol_execute_transition -> 22
+      | Dave_protocol_ready_for_transition -> 23
+      | Dave_protocol_prepare_epoch -> 24
+      | Mls_external_sender_package -> 25
+      | Mls_key_package -> 26
+      | Mls_proposals -> 27
+      | Mls_commit_welcome -> 28
+      | Mls_announce_commit_transition -> 29
+      | Mls_welcome -> 30
+      | Mls_invalid_commit_welcome -> 31
       | Unknown n -> n
     ;;
 
@@ -125,7 +149,23 @@ module Op_code = struct
       | 9 -> Resumed
       | 11 -> Clients_connect
       | 13 -> Client_disconnect
+      | 21 -> Dave_protocol_prepare_transition
+      | 22 -> Dave_protocol_execute_transition
+      | 23 -> Dave_protocol_ready_for_transition
+      | 24 -> Dave_protocol_prepare_epoch
+      | 25 -> Mls_external_sender_package
+      | 26 -> Mls_key_package
+      | 27 -> Mls_proposals
+      | 28 -> Mls_commit_welcome
+      | 29 -> Mls_announce_commit_transition
+      | 30 -> Mls_welcome
+      | 31 -> Mls_invalid_commit_welcome
       | n -> Unknown n
+    ;;
+
+    let frame_content = function
+      | Mls_key_package | Mls_commit_welcome -> `Binary
+      | _ -> `Text
     ;;
 
     include functor Make
@@ -136,18 +176,23 @@ module Event = struct
   module Make
       (Op_code : sig
          type t [@@deriving equal, sexp_of, quickcheck, yojson]
+
+         val of_int : int -> t
+         val to_int : t -> int
+         val frame_content : t -> [ `Text | `Binary ]
        end)
       (Arg : sig
          type t [@@deriving sexp_of, yojson]
 
-         val data : t -> Json.t option
+         val op_code : t -> Op_code.t
+         val data : t -> string option
          val seq_num : t -> Seq_num.t option
          val name : t -> string option
 
          module Fields : sig
            val create
              :  op_code:Op_code.t
-             -> data:Json.t option
+             -> data:string option
              -> seq_num:Seq_num.t option
              -> name:string option
              -> t
@@ -162,6 +207,11 @@ module Event = struct
       | None -> Or_error.error_s [%message "Missing data" (t : Arg.t)]
     ;;
 
+    let data_json_or_error t =
+      let%bind.Or_error data = data_or_error t in
+      Or_error.try_with (fun () -> Json.from_string data |> [%of_yojson: Json.t])
+    ;;
+
     let seq_num_or_error t =
       match Arg.seq_num t with
       | Some seq_num -> Ok seq_num
@@ -173,12 +223,57 @@ module Event = struct
       | Some name -> Ok name
       | None -> Or_error.error_s [%message "Missing name" (t : Arg.t)]
     ;;
+
+    let of_frame_content_or_error { Websocket.Frame_content.opcode; content } =
+      match opcode with
+      | Text ->
+        Or_error.try_with (fun () -> Json.from_string content |> [%of_yojson: Arg.t])
+      | Binary ->
+        (* Binary DAVE MLS messages:
+           - uint16: sequence number (big-endian)
+           - uint8: opcode
+           - rest: payload *)
+        Or_error.try_with (fun () ->
+          let iobuf = Iobuf.of_string content in
+          let seq_num = Iobuf.Consume.uint16_be iobuf |> Seq_num.of_int_exn in
+          let op_code = Iobuf.Consume.uint8 iobuf |> Op_code.of_int in
+          let data = Iobuf.Consume.stringo iobuf in
+          Arg.Fields.create ~op_code ~data:(Some data) ~seq_num:(Some seq_num) ~name:None)
+      | Nonctrl _ as opcode ->
+        Or_error.error_s
+          [%message
+            "Unexpected Websocket frame content opcode"
+              (opcode : Websocket.Frame_content.Opcode.t)]
+    ;;
+
+    let to_frame_content t =
+      match Arg.op_code t |> Op_code.frame_content with
+      | `Text ->
+        { Websocket.Frame_content.opcode = Text
+        ; content = [%yojson_of: Arg.t] t |> Json.to_string
+        }
+      | `Binary ->
+        let payload = Arg.data t |> Option.value ~default:"" in
+        let iobuf = Iobuf.create ~len:(String.length payload + 1) in
+        Iobuf.Fill.uint8_trunc iobuf (Arg.op_code t |> Op_code.to_int);
+        Iobuf.Fill.stringo iobuf payload;
+        Iobuf.flip_lo iobuf;
+        let content = Iobuf.to_string iobuf in
+        { Websocket.Frame_content.opcode = Binary; content }
+    ;;
+  end
+
+  module Data = struct
+    type t = string [@@deriving sexp_of]
+
+    let t_of_yojson = Json.to_string
+    let yojson_of_t = Json.from_string
   end
 
   module Gateway = struct
     type t =
       { op_code : Op_code.Gateway.t [@key "op"]
-      ; data : Json.t option [@key "d"] [@default None]
+      ; data : Data.t option [@key "d"] [@default None]
       ; seq_num : Seq_num.t option [@key "s"] [@default None]
       ; name : string option [@key "t"] [@default None]
       }
@@ -191,7 +286,7 @@ module Event = struct
   module Voice_gateway = struct
     type t =
       { op_code : Op_code.Voice_gateway.t [@key "op"]
-      ; data : Json.t option [@key "d"] [@default None]
+      ; data : Data.t option [@key "d"] [@default None]
       ; seq_num : Seq_num.t option [@key "seq"] [@default None]
       ; name : string option [@key "t"] [@default None]
       }

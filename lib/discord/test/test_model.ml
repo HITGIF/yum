@@ -22,19 +22,17 @@ let%expect_test "Voice Gateway API URL" =
 ;;
 
 let test_receive payload =
-  payload
-  |> Json.from_string
-  |> [%of_yojson: Websocket_protocol.Gateway.Event.t]
-  |> Model.Gateway.Event.Receivable.of_protocol_or_error
+  { Websocket.Frame_content.opcode = Text; content = payload }
+  |> Websocket_protocol.Gateway.Event.of_frame_content_or_error
+  |> Or_error.bind ~f:Model.Gateway.Event.Receivable.of_protocol_or_error
   |> [%sexp_of: Model.Gateway.Event.Receivable.t Or_error.t]
   |> print_s
 ;;
 
 let test_voice_gateway_receive payload =
-  payload
-  |> Json.from_string
-  |> [%of_yojson: Websocket_protocol.Voice_gateway.Event.t]
-  |> Model.Voice_gateway.Event.Receivable.of_protocol_or_error
+  { Websocket.Frame_content.opcode = Text; content = payload }
+  |> Websocket_protocol.Voice_gateway.Event.of_frame_content_or_error
+  |> Or_error.bind ~f:Model.Voice_gateway.Event.Receivable.of_protocol_or_error
   |> [%sexp_of: Model.Voice_gateway.Event.Receivable.t Or_error.t]
   |> print_s
 ;;
@@ -42,22 +40,20 @@ let test_voice_gateway_receive payload =
 let test_send event =
   event
   |> Model.Gateway.Event.Sendable.to_protocol
-  |> [%yojson_of: Websocket_protocol.Gateway.Event.t]
-  |> Json.pretty_to_string
-  |> print_endline
+  |> Websocket_protocol.Gateway.Event.to_frame_content
+  |> [%sexp_of: Websocket.Frame_content.t]
+  |> print_s
 ;;
 
 let test_roundtrip event =
   event
   |> Model.Gateway.Event.Sendable.to_protocol
-  |> [%yojson_of: Websocket_protocol.Gateway.Event.t]
-  |> fun json ->
-  Json.pretty_to_string json |> print_endline;
-  json
-  |> Json.to_string
-  |> Json.from_string
-  |> [%of_yojson: Websocket_protocol.Gateway.Event.t]
-  |> Model.Gateway.Event.Receivable.of_protocol_or_error
+  |> Websocket_protocol.Gateway.Event.to_frame_content
+  |> (fun frame_content ->
+       print_s [%sexp (frame_content : Websocket.Frame_content.t)];
+       frame_content)
+  |> Websocket_protocol.Gateway.Event.of_frame_content_or_error
+  |> Or_error.bind ~f:Model.Gateway.Event.Receivable.of_protocol_or_error
   |> [%sexp_of: Model.Gateway.Event.Receivable.t Or_error.t]
   |> print_s
 ;;
@@ -92,14 +88,17 @@ let%expect_test "hello" =
 
 let%expect_test "heartbeat" =
   test_roundtrip (Heartbeat { last_seq_num = None });
-  [%expect {|
-    { "op": 1, "d": null, "s": null, "t": null }
+  [%expect
+    {|
+    ((opcode Text) (content "{\"op\":1,\"d\":null,\"s\":null,\"t\":null}"))
     (Ok Heartbeat)
     |}];
   test_roundtrip
     (Heartbeat { last_seq_num = Some (Websocket_protocol.Seq_num.of_int_exn 42) });
-  [%expect {|
-    { "op": 1, "d": 42, "s": null, "t": null }
+  [%expect
+    {|
+    ((opcode  Text)
+     (content "{\"op\":1,\"d\":42,\"s\":null,\"t\":null}"))
     (Ok Heartbeat)
     |}]
 ;;
@@ -115,20 +114,9 @@ let%expect_test "identify" =
        });
   [%expect
     {|
-    {
-      "op": 2,
-      "d": {
-        "token": "my_token",
-        "intents": 33409,
-        "properties": {
-          "os": "Linux",
-          "browser": "my_library",
-          "device": "my_library"
-        }
-      },
-      "s": null,
-      "t": null
-    }
+    ((opcode Text)
+     (content
+      "{\"op\":2,\"d\":{\"token\":\"my_token\",\"intents\":33409,\"properties\":{\"os\":\"Linux\",\"browser\":\"my_library\",\"device\":\"my_library\"}},\"s\":null,\"t\":null}"))
     |}]
 ;;
 
@@ -528,12 +516,9 @@ let%expect_test "resume" =
        });
   [%expect
     {|
-    {
-      "op": 6,
-      "d": { "token": "my_token", "session_id": "my_session", "seq": 123 },
-      "s": null,
-      "t": null
-    }
+    ((opcode Text)
+     (content
+      "{\"op\":6,\"d\":{\"token\":\"my_token\",\"session_id\":\"my_session\",\"seq\":123},\"s\":null,\"t\":null}"))
     |}];
   test_send
     (Resume
@@ -543,12 +528,9 @@ let%expect_test "resume" =
        });
   [%expect
     {|
-    {
-      "op": 6,
-      "d": { "token": "my_token", "session_id": "my_session", "seq": null },
-      "s": null,
-      "t": null
-    }
+    ((opcode Text)
+     (content
+      "{\"op\":6,\"d\":{\"token\":\"my_token\",\"session_id\":\"my_session\",\"seq\":null},\"s\":null,\"t\":null}"))
     |}]
 ;;
 
