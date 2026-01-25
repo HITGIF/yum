@@ -199,7 +199,7 @@ let to_url = function
 let to_src t =
   let url = to_url t in
   match t with
-  | Youtube _ -> `Ytdl url
+  | Youtube _ -> `Youtube url
   | Bilibili _ -> `Bilibili url
 ;;
 
@@ -229,7 +229,7 @@ module Playlist = struct
   let to_src t =
     let url = to_url t in
     match t with
-    | Youtube _ -> `Ytdl_playlist url
+    | Youtube _ -> `Youtube url
   ;;
 
   module%test _ = struct

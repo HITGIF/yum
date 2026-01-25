@@ -19,14 +19,13 @@ let command =
          File_path.Absolute.to_string
          ~default:Ffmpeg.default_prog
          ~doc:"PATH Path to the ffmpeg binary"
-     and youtube_dl_path =
+     and yt_dlp_path =
        flag_optional_with_default_doc_string
          [%var_dash_name]
          File_path.Absolute.arg_type
          File_path.Absolute.to_string
-         ~default:Youtube_dl.default_prog
-         ~doc:"PATH Path to the youtube-dl binary"
+         ~default:Yt_dlp.default_prog
+         ~doc:"PATH Path to the yt-dlp binary"
      in
-     fun () ->
-       Server.run ~discord_bot_token ~youtube_songs ~ffmpeg_path ~youtube_dl_path ())
+     fun () -> Server.run ~discord_bot_token ~youtube_songs ~ffmpeg_path ~yt_dlp_path ())
 ;;

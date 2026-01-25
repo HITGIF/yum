@@ -2,7 +2,7 @@ open! Core
 open! Async
 open! Common
 
-let default_prog = File_path.Absolute.of_string "/usr/bin/youtube-dl"
+let default_prog = File_path.Absolute.of_string "/usr/bin/yt-dlp"
 
 let default_download_args =
   [ "--quiet"; "--no-warnings"; "--no-progress"; "--no-continue" ]
@@ -11,7 +11,6 @@ let default_download_args =
       ; [ "--user-agent"
         ; "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) \
            Chrome/127.0.6533.103 Mobile Safari/537.36"
-          (* https://github.com/ytdl-org/youtube-dl/issues/33142 *)
         ]
       ; [ "--output"; "-" ]
       ]

@@ -62,7 +62,7 @@ end
 type t =
   { auth_token : Auth_token.t
   ; ffmpeg_path : File_path.Absolute.t
-  ; youtube_dl_path : File_path.Absolute.t
+  ; yt_dlp_path : File_path.Absolute.t
   ; guild_id : Guild_id.t
   ; mutable voice_channel : Channel_id.t
   ; mutable message_channel : Channel_id.t
@@ -84,7 +84,7 @@ let on_songs_empty t = (t.on_songs_empty :> (unit, read) Bvar.t)
 let close
   { auth_token = _
   ; ffmpeg_path = _
-  ; youtube_dl_path = _
+  ; yt_dlp_path = _
   ; guild_id
   ; voice_channel = _
   ; message_channel = _
@@ -175,7 +175,7 @@ let rec play ({ guild_id; _ } as t) =
     let%bind () =
       let download () =
         match Song.to_src song with
-        | `Ytdl url -> Youtube_dl.download ~prog:t.youtube_dl_path ~cancellation_token url
+        | `Youtube url -> Yt_dlp.download ~prog:t.yt_dlp_path ~cancellation_token url
         | `Bilibili url -> Bilibili.download (Uri.of_string url)
       in
       match%bind
@@ -243,7 +243,7 @@ let skip { guild_id; skip; _ } =
 let create
   ~auth_token
   ~ffmpeg_path
-  ~youtube_dl_path
+  ~yt_dlp_path
   ~guild_id
   ~voice_channel
   ~message_channel
@@ -259,7 +259,7 @@ let create
   let closed = Set_once.create () in
   { auth_token
   ; ffmpeg_path
-  ; youtube_dl_path
+  ; yt_dlp_path
   ; guild_id
   ; voice_channel
   ; message_channel
