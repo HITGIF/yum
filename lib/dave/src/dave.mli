@@ -12,7 +12,7 @@ end
 module Uint64_data : sig
   type t
 
-  val len : t -> Unsigned.size_t
+  val is_empty : t -> bool
 end
 
 module Commit_result : sig
@@ -21,8 +21,6 @@ module Commit_result : sig
   val destroy : t -> unit
   val is_failed : t -> bool
   val is_ignored : t -> bool
-  val get_roster_member_ids : t -> Uint64_data.t
-  val get_roster_member_signature : t -> int -> Uint8_data.t
 end
 
 module Welcome_result : sig
@@ -30,7 +28,6 @@ module Welcome_result : sig
 
   val destroy : t -> unit
   val get_roster_member_ids : t -> Uint64_data.t
-  val get_roster_member_signature : t -> int -> Uint8_data.t
 end
 
 module Key_ratchet : sig
@@ -48,7 +45,6 @@ module Session : sig
   val reset : t -> unit
   val set_protocol_version : t -> version:int -> unit
   val get_protocol_version : t -> int
-  val get_last_epoch_authenticator : t -> Uint8_data.t
   val set_external_sender : t -> Uint8_data.t -> unit
 
   val process_proposals
@@ -86,39 +82,17 @@ module Media_type : sig
     | Video
 end
 
-module Encryptor_result_code : sig
-  type t =
-    | Success
-    | Encryption_failure
-    | Missing_key_ratchet
-    | Missing_cryptor
-    | Too_many_attempts
-  [@@deriving sexp_of]
-end
-
-module Decryptor_result_code : sig
-  type t =
-    | Success
-    | Decryption_failure
-    | Missing_key_ratchet
-    | Invalid_nonce
-    | Missing_cryptor
-  [@@deriving sexp_of]
-end
-
-module Encryptor_stats : sig
-  type t
-
-  val t : t Ctypes.structure Ctypes.typ
-end
-
-module Decryptor_stats : sig
-  type t
-
-  val t : t Ctypes.structure Ctypes.typ
-end
-
 module Encryptor : sig
+  module Result_code : sig
+    type t =
+      | Success
+      | Encryption_failure
+      | Missing_key_ratchet
+      | Missing_cryptor
+      | Too_many_attempts
+    [@@deriving sexp_of]
+  end
+
   type t
 
   val create : unit -> t
@@ -135,25 +109,25 @@ module Encryptor : sig
     -> media_type:Media_type.t
     -> ssrc:int
     -> plaintext:bytes
-    -> Encryptor_result_code.t * bytes
-
-  val set_protocol_version_changed_callback : t -> callback:(unit -> unit) -> unit
-  val get_stats : t -> media_type:Media_type.t -> Encryptor_stats.t Ctypes.structure
+    -> Result_code.t * bytes
 end
 
 module Decryptor : sig
+  module Result_code : sig
+    type t =
+      | Success
+      | Decryption_failure
+      | Missing_key_ratchet
+      | Invalid_nonce
+      | Missing_cryptor
+    [@@deriving sexp_of]
+  end
+
   type t
 
   val create : unit -> t
   val destroy : t -> unit
   val transition_to_key_ratchet : t -> Key_ratchet.t -> unit
   val set_passthrough_mode : t -> bool -> unit
-
-  val decrypt
-    :  t
-    -> media_type:Media_type.t
-    -> ciphertext:bytes
-    -> Decryptor_result_code.t * bytes
-
-  val get_stats : t -> media_type:Media_type.t -> Decryptor_stats.t Ctypes.structure
+  val decrypt : t -> media_type:Media_type.t -> ciphertext:bytes -> Result_code.t * bytes
 end

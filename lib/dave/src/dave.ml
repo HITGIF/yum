@@ -13,29 +13,30 @@ module Data (Element : sig
   end) : sig
   type t
 
-  val get : (Element.t ptr ptr -> size_t ptr -> unit) -> t
-  val of_list : Element.t list -> t
   val ptr : t -> Element.t ptr
   val len : t -> size_t
-  val to_carray : t -> Element.t carray
+  val is_empty : t -> bool
+  val of_ptr : (Element.t ptr ptr -> size_t ptr -> unit) -> t
+  val of_list : Element.t list -> t
   val of_carray : Element.t carray -> t
+  val to_carray : t -> Element.t carray
 end = struct
   type t = Element.t carray
 
-  let create ptr len = CArray.from_ptr ptr (of_size_t len)
+  let ptr = CArray.start
+  let len t = CArray.length t |> to_size_t
+  let is_empty t = CArray.length t = 0
 
-  let get f =
-    let data = allocate (ptr Element.t) (from_voidp Element.t null) in
+  let of_ptr f =
+    let data = allocate (Ctypes.ptr Element.t) (from_voidp Element.t null) in
     let length = allocate size_t (to_size_t 0) in
     f data length;
-    create !@data !@length
+    CArray.from_ptr !@data (of_size_t !@length)
   ;;
 
   let of_list = CArray.of_list Element.t
-  let ptr = CArray.start
-  let len t = CArray.length t |> to_size_t
-  let to_carray = Fn.id
   let of_carray = Fn.id
+  let to_carray = Fn.id
 end
 
 module Uint8_data = struct
@@ -78,36 +79,10 @@ module String_data = struct
       let t = ptr char
     end)
 
-  let of_list (strings : string list) =
-    List.map strings ~f:(fun string -> CArray.of_string string |> CArray.start) |> of_list
+  let of_list strings =
+    List.map strings ~f:(Fn.compose CArray.start CArray.of_string) |> of_list
   ;;
 end
-
-module Codec = Binding.Codec
-module Media_type = Binding.Media_type
-
-module Encryptor_result_code = struct
-  type t = Binding.Encryptor_result_code.t =
-    | Success
-    | Encryption_failure
-    | Missing_key_ratchet
-    | Missing_cryptor
-    | Too_many_attempts
-  [@@deriving sexp_of]
-end
-
-module Decryptor_result_code = struct
-  type t = Binding.Decryptor_result_code.t =
-    | Success
-    | Decryption_failure
-    | Missing_key_ratchet
-    | Invalid_nonce
-    | Missing_cryptor
-  [@@deriving sexp_of]
-end
-
-module Encryptor_stats = Binding.Encryptor_stats
-module Decryptor_stats = Binding.Decryptor_stats
 
 module Commit_result = struct
   open! Binding.Commit_result
@@ -117,11 +92,6 @@ module Commit_result = struct
   let destroy = destroy
   let is_failed = is_failed
   let is_ignored = is_ignored
-  let get_roster_member_ids t = get_roster_member_ids t |> Uint64_data.get
-
-  let get_roster_member_signature t roster_id =
-    get_roster_member_signature t (to_u64 roster_id) |> Uint8_data.get
-  ;;
 end
 
 module Welcome_result = struct
@@ -130,11 +100,7 @@ module Welcome_result = struct
   type nonrec t = t
 
   let destroy = destroy
-  let get_roster_member_ids t = get_roster_member_ids t |> Uint64_data.get
-
-  let get_roster_member_signature t roster_id =
-    get_roster_member_signature t (to_u64 roster_id) |> Uint8_data.get
-  ;;
+  let get_roster_member_ids t = get_roster_member_ids t |> Uint64_data.of_ptr
 end
 
 module Key_ratchet = struct
@@ -164,7 +130,6 @@ module Session = struct
   let reset = reset
   let set_protocol_version t ~version = set_protocol_version t (to_u64 version)
   let get_protocol_version t = get_protocol_version t |> of_u64
-  let get_last_epoch_authenticator t = get_last_epoch_authenticator t |> Uint8_data.get
 
   let set_external_sender t external_sender =
     set_external_sender
@@ -181,7 +146,7 @@ module Session = struct
       (Uint8_data.len proposals)
       (String_data.ptr recognized_user_ids)
       (String_data.len recognized_user_ids)
-    |> Uint8_data.get
+    |> Uint8_data.of_ptr
   ;;
 
   let process_commit t commit =
@@ -198,12 +163,25 @@ module Session = struct
       (String_data.len recognized_user_ids)
   ;;
 
-  let get_marshalled_key_package t = get_marshalled_key_package t |> Uint8_data.get
+  let get_marshalled_key_package t = get_marshalled_key_package t |> Uint8_data.of_ptr
   let get_key_ratchet = get_key_ratchet
 end
 
+module Codec = Binding.Codec
+module Media_type = Binding.Media_type
+
 module Encryptor = struct
   open! Binding.Encryptor
+
+  module Result_code = struct
+    type t = Result_code.t =
+      | Success
+      | Encryption_failure
+      | Missing_key_ratchet
+      | Missing_cryptor
+      | Too_many_attempts
+    [@@deriving sexp_of]
+  end
 
   type nonrec t = t
 
@@ -240,21 +218,20 @@ module Encryptor = struct
     let ciphertext = Bytes.subo ciphertext ~len:(of_size_t !@ciphertext_len) in
     result, ciphertext
   ;;
-
-  let set_protocol_version_changed_callback t ~callback =
-    let callback _user_data = callback () in
-    set_protocol_version_changes_callback t callback null
-  ;;
-
-  let get_stats t ~media_type =
-    let stats = allocate_n Binding.Encryptor_stats.t ~count:1 in
-    get_stats t media_type stats;
-    !@stats
-  ;;
 end
 
 module Decryptor = struct
   open! Binding.Decryptor
+
+  module Result_code = struct
+    type t = Result_code.t =
+      | Success
+      | Decryption_failure
+      | Missing_key_ratchet
+      | Invalid_nonce
+      | Missing_cryptor
+    [@@deriving sexp_of]
+  end
 
   type nonrec t = t
 
@@ -285,11 +262,5 @@ module Decryptor = struct
     in
     let plaintext = Bytes.subo plaintext ~len:(of_size_t !@plaintext_len) in
     result, plaintext
-  ;;
-
-  let get_stats t ~media_type =
-    let stats = allocate_n Binding.Decryptor_stats.t ~count:1 in
-    get_stats t media_type stats;
-    !@stats
   ;;
 end

@@ -42,58 +42,6 @@ module C (F : Cstubs.FOREIGN) = struct
     include functor Make_enum
   end
 
-  module Encryptor_result_code = struct
-    type t =
-      | Success
-      | Encryption_failure
-      | Missing_key_ratchet
-      | Missing_cryptor
-      | Too_many_attempts
-    [@@deriving enumerate, variants]
-
-    include functor Make_enum
-  end
-
-  module Decryptor_result_code = struct
-    type t =
-      | Success
-      | Decryption_failure
-      | Missing_key_ratchet
-      | Invalid_nonce
-      | Missing_cryptor
-    [@@deriving enumerate, variants]
-
-    include functor Make_enum
-  end
-
-  module Encryptor_stats = struct
-    type t
-
-    let t : t structure typ = structure [%module_name]
-    let passthrough_count = field t [%var_name] uint64_t
-    let encrypt_success_count = field t [%var_name] uint64_t
-    let encrypt_failure_count = field t [%var_name] uint64_t
-    let encrypt_duration = field t [%var_name] uint64_t
-    let encrypt_attempts = field t [%var_name] uint64_t
-    let encrypt_max_attempts = field t [%var_name] uint64_t
-    let encrypt_missing_key_count = field t [%var_name] uint64_t
-    let () = seal t
-  end
-
-  module Decryptor_stats = struct
-    type t
-
-    let t : t structure typ = structure [%module_name]
-    let passthrough_count = field t [%var_name] uint64_t
-    let decrypt_success_count = field t [%var_name] uint64_t
-    let decrypt_failure_count = field t [%var_name] uint64_t
-    let decrypt_duration = field t [%var_name] uint64_t
-    let decrypt_attempts = field t [%var_name] uint64_t
-    let decrypt_missing_key_count = field t [%var_name] uint64_t
-    let decrypt_invalid_nonce_count = field t [%var_name] uint64_t
-    let () = seal t
-  end
-
   let max_supported_protocol_version =
     foreign "daveMaxSupportedProtocolVersion" (void @-> returning int)
   ;;
@@ -287,6 +235,32 @@ module C (F : Cstubs.FOREIGN) = struct
   end
 
   module Encryptor = struct
+    module Result_code = struct
+      type t =
+        | Success
+        | Encryption_failure
+        | Missing_key_ratchet
+        | Missing_cryptor
+        | Too_many_attempts
+      [@@deriving enumerate, variants]
+
+      include functor Make_enum
+    end
+
+    module Stats = struct
+      type t
+
+      let t : t structure typ = structure [%module_name]
+      let passthrough_count = field t [%var_name] uint64_t
+      let encrypt_success_count = field t [%var_name] uint64_t
+      let encrypt_failure_count = field t [%var_name] uint64_t
+      let encrypt_duration = field t [%var_name] uint64_t
+      let encrypt_attempts = field t [%var_name] uint64_t
+      let encrypt_max_attempts = field t [%var_name] uint64_t
+      let encrypt_missing_key_count = field t [%var_name] uint64_t
+      let () = seal t
+    end
+
     type t = unit ptr
 
     let t : t typ = ptr void
@@ -336,7 +310,7 @@ module C (F : Cstubs.FOREIGN) = struct
          @-> ocaml_bytes (* encryptedFrame *)
          @-> size_t (* encryptedFrameCapacity *)
          @-> ptr size_t (* bytesWritten *)
-         @-> returning Encryptor_result_code.t)
+         @-> returning Result_code.t)
     ;;
 
     let set_protocol_version_changes_callback =
@@ -351,11 +325,37 @@ module C (F : Cstubs.FOREIGN) = struct
     let get_stats =
       foreign
         "daveEncryptorGetStats"
-        (t @-> Media_type.t @-> ptr Encryptor_stats.t @-> returning void)
+        (t @-> Media_type.t @-> ptr Stats.t @-> returning void)
     ;;
   end
 
   module Decryptor = struct
+    module Result_code = struct
+      type t =
+        | Success
+        | Decryption_failure
+        | Missing_key_ratchet
+        | Invalid_nonce
+        | Missing_cryptor
+      [@@deriving enumerate, variants]
+
+      include functor Make_enum
+    end
+
+    module Stats = struct
+      type t
+
+      let t : t structure typ = structure [%module_name]
+      let passthrough_count = field t [%var_name] uint64_t
+      let decrypt_success_count = field t [%var_name] uint64_t
+      let decrypt_failure_count = field t [%var_name] uint64_t
+      let decrypt_duration = field t [%var_name] uint64_t
+      let decrypt_attempts = field t [%var_name] uint64_t
+      let decrypt_missing_key_count = field t [%var_name] uint64_t
+      let decrypt_invalid_nonce_count = field t [%var_name] uint64_t
+      let () = seal t
+    end
+
     type t = unit ptr
 
     let t : t typ = ptr void
@@ -384,7 +384,7 @@ module C (F : Cstubs.FOREIGN) = struct
          @-> ocaml_bytes (* frame *)
          @-> size_t (* frameCapacity *)
          @-> ptr size_t (* bytesWritten *)
-         @-> returning Decryptor_result_code.t)
+         @-> returning Result_code.t)
     ;;
 
     let get_max_plaintext_byte_size =
@@ -396,7 +396,7 @@ module C (F : Cstubs.FOREIGN) = struct
     let get_stats =
       foreign
         "daveDecryptorGetStats"
-        (t @-> Media_type.t @-> ptr Decryptor_stats.t @-> returning void)
+        (t @-> Media_type.t @-> ptr Stats.t @-> returning void)
     ;;
   end
 end

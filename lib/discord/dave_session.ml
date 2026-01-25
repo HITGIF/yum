@@ -30,7 +30,7 @@ type t =
 
 let create ~user_id ~channel_id =
   let on_error ~source ~reason =
-    [%log.error [%here] "MLS failure" (source : string) (reason : string)]
+    [%log.error [%here] "MLS Session Error" (source : string) (reason : string)]
   in
   let events_reader, events_writer = Pipe.create () in
   let session = Dave.Session.create ~on_error in
@@ -339,17 +339,12 @@ let on_mls_welcome t { Model.Voice_gateway.Event.Mls_welcome.transition_id; welc
     Dave.Session.process_welcome t.session welcome_data ~recognized_user_ids
   in
   (* Check if we joined the group by looking at roster member IDs *)
-  let roster_count =
-    Dave.Welcome_result.get_roster_member_ids welcome_result
-    |> Dave.Uint64_data.len
-    |> Unsigned.Size_t.to_int
-  in
-  let joined_group = roster_count > 0 in
+  let rosters = Dave.Welcome_result.get_roster_member_ids welcome_result in
+  let joined_group = not (Dave.Uint64_data.is_empty rosters) in
   [%log.debug
     [%here]
       "process_welcome result"
       (transition_id : Model.Dave_transition_id.t)
-      (roster_count : int)
       (joined_group : bool)];
   if joined_group
   then (
@@ -387,7 +382,7 @@ let encrypt t ~ssrc ~plaintext =
      | Success | Missing_key_ratchet -> ()
      | Encryption_failure | Missing_cryptor | Too_many_attempts ->
        [%log.error
-         [%here] "DAVE encryption failed" (error : Dave.Encryptor_result_code.t)]);
+         [%here] "DAVE encryption failed" (error : Dave.Encryptor.Result_code.t)]);
     plaintext
 ;;
 
@@ -403,7 +398,7 @@ let decrypt t ~ciphertext =
      | Success | Missing_key_ratchet -> ()
      | Decryption_failure | Missing_cryptor | Invalid_nonce ->
        [%log.error
-         [%here] "DAVE encryption failed" (error : Dave.Decryptor_result_code.t)]);
+         [%here] "DAVE encryption failed" (error : Dave.Decryptor.Result_code.t)]);
     ciphertext
 ;;
 
