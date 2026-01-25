@@ -1,3 +1,3 @@
 open! Core
 
-let support_dave_protocol = ()
+let pause_when_channel_empty = ()

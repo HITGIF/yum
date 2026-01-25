@@ -154,6 +154,7 @@ let write_frames t frames_reader ~cancellation_token =
 ;;
 
 let rec play ({ guild_id; _ } as t) =
+  Todo.pause_when_channel_empty;
   match Set_once.is_some t.closed with
   | true ->
     [%log.debug [%here] "Player closed" (guild_id : Guild_id.t)];
