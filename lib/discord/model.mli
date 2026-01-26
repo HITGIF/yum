@@ -191,6 +191,10 @@ module Gateway : sig
       end
 
       module Interaction_create : sig
+        module Member : sig
+          type t = { user : User.t } [@@deriving sexp_of]
+        end
+
         module Data : sig
           type t =
             { custom_id : string
@@ -203,7 +207,9 @@ module Gateway : sig
           { id : Interaction_id.t
           ; token : Interaction_token.t
           ; guild_id : Guild_id.t
-          ; user_id : User_id.t
+          ; channel_id : Channel_id.t
+          ; application_id : User_id.t
+          ; member : Member.t
           ; data : Data.t
           }
         [@@deriving sexp_of]

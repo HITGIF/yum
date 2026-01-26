@@ -16,6 +16,8 @@ module Event = struct
         { id : Model.Interaction_id.t
         ; token : Model.Interaction_token.t
         ; guild_id : Model.Guild_id.t
+        ; channel_id : Model.Channel_id.t
+        ; user : Model.User.t
         ; custom_id : string
         ; component_type : int
         }
@@ -558,14 +560,19 @@ and handle_interaction_create
   { Model.Gateway.Event.Dispatch.Interaction_create.id
   ; token
   ; guild_id
-  ; user_id
+  ; channel_id
+  ; application_id
+  ; member = { user }
   ; data = { custom_id; component_type }
   }
   =
   match t.state with
   | Connected { state = Ready { user = { id = self_user_id; _ }; _ }; _ } ->
-    if [%equal: Model.User_id.t] user_id self_user_id
-    then emit t (Interaction { id; token; guild_id; custom_id; component_type })
+    if [%equal: Model.User_id.t] application_id self_user_id
+    then
+      emit
+        t
+        (Interaction { id; token; guild_id; channel_id; user; custom_id; component_type })
   | state ->
     [%log.error
       [%here] "Ignoring [Interaction_create] in unexpected state" (state : State.t)]

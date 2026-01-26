@@ -8,6 +8,8 @@ module Event : sig
         { id : Model.Interaction_id.t
         ; token : Model.Interaction_token.t
         ; guild_id : Model.Guild_id.t
+        ; channel_id : Model.Channel_id.t
+        ; user : Model.User.t
         ; custom_id : string
         ; component_type : int
         }

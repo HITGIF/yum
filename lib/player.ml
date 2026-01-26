@@ -63,7 +63,7 @@ type t =
   { ffmpeg_path : File_path.Absolute.t
   ; yt_dlp_path : File_path.Absolute.t
   ; guild_id : Guild_id.t
-  ; mutable agent : Discord.Agent.t
+  ; mutable agent : Agent.t
   ; mutable voice_channel : Channel_id.t
   ; mutable frames_writer : Audio.Pcm_frame.t Queue.t Pipe.Writer.t option
   ; mutable playing : Song.t option
@@ -163,9 +163,13 @@ let rec play ({ guild_id; _ } as t) =
     [%log.info [%here] "Playing song" (guild_id : Guild_id.t) (song : Song.t)];
     let%bind () =
       let url = Song.to_url song in
-      let%bind () = Discord.Agent.send_message ~emoji:Yum t.agent url in
-      Discord.Agent.send_message'
-        ~buttons:[ { style = Danger; custom_id = "skip"; label = Some "Skip" } ]
+      let%bind () = Agent.send_message ~emoji:`Yum t.agent url in
+      Agent.send_message'
+        ~buttons:
+          [ { style = Danger; action = Skip; label = Some "Skip" }
+          ; { style = Primary; action = Play song; label = Some "Play" }
+          ; { style = Success; action = Play_now song; label = Some "Play!" }
+          ]
         t.agent
         None
     in
@@ -179,7 +183,7 @@ let rec play ({ guild_id; _ } as t) =
             ~prog:t.yt_dlp_path
             ~cancellation_token
             ~on_error:(fun error ->
-              Discord.Agent.send_message ~code:() ~emoji:Fearful t.agent error)
+              Agent.send_message ~code:() ~emoji:`Fearful t.agent error)
             url
         | `Bilibili url -> Bilibili.download (Uri.of_string url)
       in
@@ -194,7 +198,7 @@ let rec play ({ guild_id; _ } as t) =
       | Error error ->
         let%bind () =
           let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
-          Discord.Agent.send_message ~code:() ~emoji:Fearful t.agent error
+          Agent.send_message ~code:() ~emoji:`Fearful t.agent error
         in
         [%log.error
           [%here]
@@ -215,6 +219,8 @@ let start_once t =
     play t |> don't_wait_for;
     `Ok
 ;;
+
+let started t = Set_once.is_some t.started
 
 let queue ({ guild_id; _ } as t) song =
   [%log.info [%here] "Queueing song" (guild_id : Guild_id.t) (song : Song.t)];

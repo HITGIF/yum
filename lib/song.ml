@@ -16,7 +16,7 @@ module Option = struct
 end
 
 module type S = sig
-  type t [@@deriving sexp_of]
+  type t [@@deriving sexp]
 
   val supported_url_formats : string list
   val of_string : string -> t
@@ -46,7 +46,7 @@ module Youtube : sig
   include S
   module Playlist : S
 end = struct
-  type t = string [@@deriving sexp_of]
+  type t = string [@@deriving sexp]
 
   let prefix_normal = "https://www.youtube.com/watch?v="
   let prefix_short = "https://youtu.be/"
@@ -72,7 +72,7 @@ end = struct
   let to_url t = [%string "%{prefix_normal}%{t}"]
 
   module Playlist : S = struct
-    type t = string [@@deriving sexp_of]
+    type t = string [@@deriving sexp]
 
     module With_song = struct
       let video_prefix_normal = "https://www.youtube.com/watch?v="
@@ -124,7 +124,7 @@ module Bilibili : S = struct
     { video : string
     ; part : int option
     }
-  [@@deriving sexp_of]
+  [@@deriving sexp]
 
   let prefix_normal = "https://www.bilibili.com/video/"
   let prefix_short = "https://b23.tv/"
@@ -169,7 +169,7 @@ end
 type t =
   | Youtube of Youtube.t
   | Bilibili of Bilibili.t
-[@@deriving variants, sexp_of]
+[@@deriving variants, sexp]
 
 let supported_url_formats_msg =
   [ "> Supported `<url>` formats:" ]

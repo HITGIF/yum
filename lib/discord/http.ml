@@ -74,17 +74,24 @@ let call
   return response
 ;;
 
+module Flags = struct
+  type flag =
+    | Ephemeral
+    | Is_components_v2
+  [@@deriving sexp_of]
+
+  let flag_to_int = function
+    | Ephemeral -> 1 lsl 6
+    | Is_components_v2 -> 1 lsl 15
+  ;;
+
+  type t = flag list [@@deriving sexp_of]
+
+  let to_int t = List.fold t ~init:0 ~f:(fun acc flag -> acc + flag_to_int flag)
+  let yojson_of_t = Fn.compose [%yojson_of: int] to_int
+end
+
 module Create_message = struct
-  module Flag = struct
-    type t = IS_COMPONENTS_V2 [@@deriving sexp_of]
-
-    let to_int = function
-      | IS_COMPONENTS_V2 -> 1 lsl 15
-    ;;
-
-    let yojson_of_t t = t |> to_int |> [%yojson_of: int]
-  end
-
   module Component = struct
     type t =
       | Action_row of { components : t list }
@@ -157,7 +164,7 @@ module Create_message = struct
   module Request = struct
     type t =
       { content : string option [@default None]
-      ; flags : Flag.t option [@default None]
+      ; flags : Flags.t option [@default None]
       ; components : Component.t list option [@default None]
       }
     [@@deriving sexp_of, yojson_of]
@@ -189,7 +196,11 @@ module Respond_interaction = struct
   end
 
   module Data = struct
-    type t = { content : string option [@default None] } [@@deriving sexp_of, yojson_of]
+    type t =
+      { content : string option [@default None]
+      ; flags : Flags.t option [@default None]
+      }
+    [@@deriving sexp_of, yojson_of]
   end
 
   module Request = struct

@@ -3,13 +3,31 @@ open! Async
 
 module Emoji = struct
   type t =
-    | Yum
-    | Fearful
-    | Pleading_face
-    | Thinking
+    [ `Yum
+    | `Fearful
+    | `Pleading_face
+    | `Thinking
+    ]
   [@@deriving sexp_of, to_string ~capitalize:"snake_case"]
 
   let to_string t = [%string ":%{to_string t}:"]
+end
+
+module Action = struct
+  type t =
+    | Skip
+    | Play of Song.t
+    | Play_now of Song.t
+    | Unknown of string
+  [@@deriving sexp]
+
+  let to_custom_id = Fn.compose Sexp.to_string [%sexp_of: t]
+
+  let of_custom_id id =
+    match Or_error.try_with (fun () -> Sexp.of_string id |> [%of_sexp: t]) with
+    | Ok action -> action
+    | Error _ -> Unknown id
+  ;;
 end
 
 module Button = struct
@@ -32,21 +50,24 @@ module Button = struct
 
   type t =
     { style : Style.t
-    ; custom_id : string
+    ; action : Action.t
     ; label : string option
     }
   [@@deriving sexp_of]
 end
 
 type t =
-  { auth_token : Model.Auth_token.t
-  ; channel_id : Model.Channel_id.t
+  { auth_token : Discord.Model.Auth_token.t
+  ; channel_id : Discord.Model.Channel_id.t
   }
 
 let create ~auth_token ~channel_id = { auth_token; channel_id }
 
 let create_massage t request =
-  Http.Create_message.call ~auth_token:t.auth_token ~channel_id:t.channel_id request
+  Discord.Http.Create_message.call
+    ~auth_token:t.auth_token
+    ~channel_id:t.channel_id
+    request
   |> Deferred.ignore_m
 ;;
 
@@ -57,7 +78,7 @@ let send_normal_message t content =
 let send_components_message t components =
   create_massage
     t
-    { content = None; flags = Some IS_COMPONENTS_V2; components = Some components }
+    { content = None; flags = Some [ Is_components_v2 ]; components = Some components }
 ;;
 
 let content ?code ?emoji ?emoji_end message =
@@ -79,7 +100,7 @@ let send_message' ?buttons ?code ?emoji ?emoji_end t message =
   match buttons with
   | None -> send_normal_message t content
   | Some buttons ->
-    let open Http.Create_message.Component in
+    let open Discord.Http.Create_message.Component in
     let text_display =
       match content with
       | None -> []
@@ -90,13 +111,29 @@ let send_message' ?buttons ?code ?emoji ?emoji_end t message =
       (text_display
        @ [ Action_row
              { components =
-                 List.map buttons ~f:(fun { Button.style; custom_id; label } ->
+                 List.map buttons ~f:(fun { Button.style; action; label } ->
                    Button
-                     { style = Button.Style.to_int style; custom_id; label; emoji = None })
+                     { style = Button.Style.to_int style
+                     ; custom_id = Action.to_custom_id action
+                     ; label
+                     ; emoji = None
+                     })
              }
          ])
 ;;
 
 let send_message ?buttons ?code ?emoji ?emoji_end t message =
   send_message' ?buttons ?code ?emoji ?emoji_end t (Some message)
+;;
+
+let respond_interaction ?emoji ?emoji_end t id token message =
+  let content = content ?emoji ?emoji_end (Some message) in
+  Discord.Http.Respond_interaction.call
+    ~auth_token:t.auth_token
+    ~interation_id:id
+    ~interaction_token:token
+    { type_ = Some Channel_message_with_source
+    ; data = Some { content; flags = Some [ Ephemeral ] }
+    }
+  |> Deferred.ignore_m
 ;;

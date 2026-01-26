@@ -10,11 +10,16 @@ module Response : sig
   [@@deriving sexp_of]
 end
 
-module Create_message : sig
-  module Flag : sig
-    type t = IS_COMPONENTS_V2 [@@deriving sexp_of]
-  end
+module Flags : sig
+  type flag =
+    | Ephemeral
+    | Is_components_v2
+  [@@deriving sexp_of]
 
+  type t = flag list
+end
+
+module Create_message : sig
   module Component : sig
     type t =
       | Action_row of { components : t list }
@@ -47,7 +52,7 @@ module Create_message : sig
   module Request : sig
     type t =
       { content : string option
-      ; flags : Flag.t option
+      ; flags : Flags.t option
       ; components : Component.t list option
       }
     [@@deriving sexp_of]
@@ -69,7 +74,11 @@ module Respond_interaction : sig
   end
 
   module Data : sig
-    type t = { content : string option } [@@deriving sexp_of]
+    type t =
+      { content : string option
+      ; flags : Flags.t option
+      }
+    [@@deriving sexp_of]
   end
 
   module Request : sig

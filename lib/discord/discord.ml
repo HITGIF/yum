@@ -1,4 +1,3 @@
-module Agent = Agent
 module Gateway = Gateway
 module Http = Http
 module Model = Model

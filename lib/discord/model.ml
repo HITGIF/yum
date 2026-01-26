@@ -356,6 +356,10 @@ module Gateway = struct
       end
 
       module Interaction_create = struct
+        module Member = struct
+          type t = { user : User.t } [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+        end
+
         module Data = struct
           type t =
             { custom_id : string
@@ -368,7 +372,9 @@ module Gateway = struct
           { id : Interaction_id.t
           ; token : Interaction_token.t
           ; guild_id : Guild_id.t
-          ; user_id : User_id.t [@key "application_id"]
+          ; channel_id : Channel_id.t
+          ; application_id : User_id.t
+          ; member : Member.t
           ; data : Data.t
           }
         [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
