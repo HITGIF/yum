@@ -673,7 +673,9 @@ and resume t =
     let%bind disconnected = disconnect t in
     [%log.info [%here] "Resuming..."];
     (match%bind
-       Cohttp_async_websocket.Client.create' (formulate_url resume_gateway_url)
+       Websocket_connector.connect
+         ~time_source:t.time_source
+         (formulate_url resume_gateway_url)
      with
      | Ok (response, ws) ->
        [%log.info [%here] "Reconnected"];
@@ -697,7 +699,9 @@ and connect t =
   | Disconnected disconnected ->
     [%log.info [%here] "Connecting..."];
     let%bind.Deferred.Or_error response, ws =
-      Cohttp_async_websocket.Client.create' (formulate_url t.initial_gateway_url)
+      Websocket_connector.connect
+        ~time_source:t.time_source
+        (formulate_url t.initial_gateway_url)
     in
     [%log.info [%here] "Connected"];
     [%log.debug [%here] (response : Cohttp.Response.t)];
