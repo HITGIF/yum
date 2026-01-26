@@ -131,12 +131,13 @@ let handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respo
 ;;
 
 let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
+  let how_to_respond = `Send_message in
   match (command : Yum_command.t) with
   | Help -> Agent.send_message agent Yum_command.help_text
   | Ping -> Agent.send_message agent ~emoji:`Yum ""
   | Start ->
     (match%bind
-       join_user_voice ~state ~gateway ~agent ~guild_id ~user_id `Send_message
+       join_user_voice ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
      with
      | None -> return ()
      | Some player ->
@@ -146,10 +147,11 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
   | Stop ->
     State.close_player state ~guild_id;
     Discord.Gateway.leave_voice gateway ~guild_id
-  | Skip -> handle_skip ~state ~guild_id ~agent `Send_message
-  | Play song -> handle_play ~state ~gateway ~agent ~guild_id ~user_id ~song `Send_message
+  | Skip -> handle_skip ~state ~guild_id ~agent how_to_respond
+  | Play song ->
+    handle_play ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
   | Play_now song ->
-    handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song `Send_message
+    handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
   | Play_list playlist ->
     (match Song.Playlist.to_src playlist with
      | `Youtube url ->
@@ -159,7 +161,7 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
           Agent.send_message ~code:() ~emoji:`Fearful agent error
         | Ok songs ->
           (match%bind
-             player_or_join_user ~state ~gateway ~agent ~guild_id ~user_id `Send_message
+             player_or_join_user ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
            with
            | None -> return ()
            | Some player ->
