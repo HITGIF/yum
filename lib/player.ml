@@ -163,7 +163,7 @@ let rec play ({ guild_id; _ } as t) =
     [%log.info [%here] "Playing song" (guild_id : Guild_id.t) (song : Song.t)];
     let%bind () =
       let url = Song.to_url song in
-      let%bind () = Agent.send_message ~emoji:`Yum t.agent url in
+      let%bind () = Agent.send_message ~emoji:Arrow_forward t.agent url in
       Agent.send_message'
         ~buttons:
           [ { style = Danger; action = Skip; label = Some "Skip" }
@@ -205,7 +205,7 @@ let rec play ({ guild_id; _ } as t) =
                         return ())
                       else if is_ ignorable
                       then return ()
-                      else Agent.send_message ~code:() ~emoji:`Fearful t.agent error
+                      else Agent.send_message ~code:() ~emoji:Fearful t.agent error
                   in
                   Ivar.fill_exn finish ())
                 url
@@ -220,7 +220,7 @@ let rec play ({ guild_id; _ } as t) =
           | Error error ->
             let%bind () =
               let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
-              Agent.send_message ~code:() ~emoji:`Fearful t.agent error
+              Agent.send_message ~code:() ~emoji:Fearful t.agent error
             in
             [%log.error
               [%here]
@@ -240,13 +240,13 @@ let rec play ({ guild_id; _ } as t) =
                [%here] "Retrying song..." (guild_id : Guild_id.t) (song : Song.t)];
              let%map () =
                Agent.send_message
-                 ~emoji:`Pleading_face
+                 ~emoji:Repeat
                  t.agent
                  [%string "Retrying... ```%{error}```"]
              in
              `Repeat attempt
            | Error _ ->
-             let%map () = Agent.send_message ~code:() ~emoji:`Fearful t.agent error in
+             let%map () = Agent.send_message ~code:() ~emoji:Fearful t.agent error in
              `Finished ()))
     in
     [%log.info [%here] "Done playing song" (guild_id : Guild_id.t) (song : Song.t)];

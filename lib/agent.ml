@@ -3,11 +3,14 @@ open! Async
 
 module Emoji = struct
   type t =
-    [ `Yum
-    | `Fearful
-    | `Pleading_face
-    | `Thinking
-    ]
+    | Yum
+    | Fearful
+    | Pleading_face
+    | Thinking
+    | Arrow_forward
+    | Arrow_double_up
+    | Fast_forward
+    | Repeat
   [@@deriving sexp_of, to_string ~capitalize:"snake_case"]
 
   let to_string t = [%string ":%{to_string t}:"]

@@ -78,7 +78,7 @@ let join_user_voice ~state ~gateway ~agent ~guild_id ~user_id how_to_respond =
     |> return
   | `User_not_in_voice_channel ->
     let%map () =
-      respond ~emoji_end:`Pleading_face agent how_to_respond "Join a voice channel first"
+      respond ~emoji_end:Pleading_face agent how_to_respond "Join a voice channel first"
     in
     None
 ;;
@@ -94,10 +94,10 @@ let player_or_join_user ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
 let handle_skip ~state ~guild_id ~agent how_to_respond =
   match State.player state ~guild_id with
   | None ->
-    let%bind () = respond ~emoji_end:`Thinking agent how_to_respond "Not playing" in
+    let%bind () = respond ~emoji_end:Thinking agent how_to_respond "Not playing" in
     return ()
   | Some player ->
-    let%bind () = respond ~emoji_end:`Yum agent how_to_respond "Skipped" in
+    let%bind () = respond ~emoji_end:Fast_forward agent how_to_respond "Skipped" in
     Player.set_agent player agent;
     Player.skip player;
     return ()
@@ -112,9 +112,9 @@ let handle_play ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond =
     if Player.started player
     then (
       Player.queue player song;
-      respond ~emoji_end:`Yum agent how_to_respond "Queued")
+      respond ~emoji_end:Arrow_double_up agent how_to_respond "Queued")
     else (
-      let%map () = respond ~emoji_end:`Yum agent how_to_respond "Playing" in
+      let%map () = respond ~emoji_end:Arrow_forward agent how_to_respond "Playing" in
       Player.queue player song;
       Player.start_once player |> ignore)
 ;;
@@ -125,7 +125,7 @@ let handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respo
   with
   | None -> return ()
   | Some player ->
-    let%map () = respond ~emoji_end:`Yum agent how_to_respond "Playing" in
+    let%map () = respond ~emoji_end:Arrow_forward agent how_to_respond "Playing" in
     Player.play_now player song;
     Player.start_once player |> ignore
 ;;
@@ -134,7 +134,7 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
   let how_to_respond = `Send_message in
   match (command : Yum_command.t) with
   | Help -> Agent.send_message agent Yum_command.help_text
-  | Ping -> Agent.send_message agent ~emoji:`Yum ""
+  | Ping -> Agent.send_message agent ~emoji:Yum ""
   | Start ->
     (match%bind
        join_user_voice ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
@@ -143,7 +143,7 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
      | Some player ->
        (match Player.start_once player with
         | `Ok -> return ()
-        | `Already_started -> Agent.send_message ~emoji_end:`Yum agent "Rejoined"))
+        | `Already_started -> Agent.send_message ~emoji_end:Yum agent "Rejoined"))
   | Stop ->
     State.close_player state ~guild_id;
     Discord.Gateway.leave_voice gateway ~guild_id
@@ -158,7 +158,7 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
        (match%bind Yt_dlp.get_playlist url with
         | Error error ->
           let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
-          Agent.send_message ~code:() ~emoji:`Fearful agent error
+          Agent.send_message ~code:() ~emoji:Fearful agent error
         | Ok songs ->
           (match%bind
              player_or_join_user ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
@@ -168,7 +168,7 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
              Player.queue_all player songs;
              Player.start_once player |> ignore;
              Agent.send_message
-               ~emoji_end:`Yum
+               ~emoji_end:Arrow_double_up
                agent
                [%string "Queued %{List.length songs#Int} songs"])))
 ;;
@@ -227,7 +227,7 @@ let handle_events ~state ~gateway event =
           handle_command ~state ~gateway ~agent ~guild_id ~user_id command
         | Error error ->
           let error = Error.to_string_hum error in
-          Agent.send_message ~emoji_end:`Pleading_face agent error))
+          Agent.send_message ~emoji_end:Pleading_face agent error))
 ;;
 
 let read_youtube_songs filename =

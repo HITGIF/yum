@@ -3,11 +3,14 @@ open! Async
 
 module Emoji : sig
   type t =
-    [ `Yum
-    | `Fearful
-    | `Pleading_face
-    | `Thinking
-    ]
+    | Yum
+    | Fearful
+    | Pleading_face
+    | Thinking
+    | Arrow_forward
+    | Arrow_double_up
+    | Fast_forward
+    | Repeat
 end
 
 module Action : sig
