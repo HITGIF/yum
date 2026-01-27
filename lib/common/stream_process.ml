@@ -4,7 +4,7 @@ open! Async
 let stream
   ~(here : [%call_pos])
   ?(cancellation_token = Deferred.never ())
-  ?(on_error = Fn.const Deferred.unit)
+  ?(on_finish = Fn.const Deferred.unit)
   ?stdin
   ~prog
   ~args
@@ -33,7 +33,7 @@ let stream
      | Ok () ->
        let%bind () = Process.stderr process |> Reader.close in
        [%log.debug "Process finished" (here : Source_code_position.t)];
-       return ()
+       on_finish (Ok ())
      | Error error ->
        let%bind stderr = Process.stderr process |> Reader.contents in
        [%log.error
@@ -41,6 +41,6 @@ let stream
            (here : Source_code_position.t)
            (error : Core_unix.Exit_or_signal.error)
            (stderr : string)];
-       on_error stderr);
+       on_finish (Error stderr));
   Process.stdout process
 ;;

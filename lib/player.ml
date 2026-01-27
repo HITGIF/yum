@@ -176,38 +176,80 @@ let rec play ({ guild_id; _ } as t) =
     t.playing <- Some song;
     Bvar.broadcast t.on_song_start song;
     let%bind () =
-      let download () =
-        match Song.to_src song with
-        | `Youtube url ->
-          Yt_dlp.download
-            ~prog:t.yt_dlp_path
-            ~cancellation_token
-            ~on_error:(fun error ->
-              Agent.send_message ~code:() ~emoji:`Fearful t.agent error)
-            url
-        | `Bilibili url -> Bilibili.download (Uri.of_string url)
-      in
-      match%bind
-        download ()
-        >>=? Ffmpeg.encode_pcm ~prog:t.ffmpeg_path ~cancellation_token
-        >>=? write_frames t ~cancellation_token
-      with
-      | Ok () ->
-        [%log.info [%here] "Done playing song" (guild_id : Guild_id.t) (song : Song.t)];
-        return ()
-      | Error error ->
+      Deferred.repeat_until_finished (Attempt.create ~max:3 ()) (fun attempt ->
+        let wait_before_next_song = ref [] in
+        let should_retry = Ivar.create () in
         let%bind () =
-          let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
-          Agent.send_message ~code:() ~emoji:`Fearful t.agent error
+          let download () =
+            match Song.to_src song with
+            | `Youtube url ->
+              let finish = Ivar.create () in
+              wait_before_next_song := Ivar.read finish :: !wait_before_next_song;
+              Yt_dlp.download
+                ~prog:t.yt_dlp_path
+                ~cancellation_token
+                ~on_finish:(fun result ->
+                  let%map () =
+                    match result with
+                    | Ok () -> return ()
+                    | Error error ->
+                      let retryable = [ "HTTP Error 403: Forbidden" ] in
+                      let ignorable = [ "Broken pipe" ] in
+                      let is_ =
+                        List.exists ~f:(fun substring ->
+                          String.is_substring error ~substring)
+                      in
+                      if is_ retryable
+                      then (
+                        Ivar.fill_if_empty should_retry error;
+                        return ())
+                      else if is_ ignorable
+                      then return ()
+                      else Agent.send_message ~code:() ~emoji:`Fearful t.agent error
+                  in
+                  Ivar.fill_exn finish ())
+                url
+            | `Bilibili url -> Bilibili.download (Uri.of_string url)
+          in
+          match%bind
+            download ()
+            >>=? Ffmpeg.encode_pcm ~prog:t.ffmpeg_path ~cancellation_token
+            >>=? write_frames t ~cancellation_token
+          with
+          | Ok () -> return ()
+          | Error error ->
+            let%bind () =
+              let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
+              Agent.send_message ~code:() ~emoji:`Fearful t.agent error
+            in
+            [%log.error
+              [%here]
+                "Error playing song"
+                (guild_id : Guild_id.t)
+                (song : Song.t)
+                (error : Error.t)];
+            return ()
         in
-        [%log.error
-          [%here]
-            "Error playing song"
-            (guild_id : Guild_id.t)
-            (song : Song.t)
-            (error : Error.t)];
-        return ()
+        let%bind () = Deferred.all_unit !wait_before_next_song in
+        match Ivar.peek should_retry with
+        | None -> return (`Finished ())
+        | Some error ->
+          (match Attempt.try_ attempt with
+           | Ok () ->
+             [%log.error
+               [%here] "Retrying song..." (guild_id : Guild_id.t) (song : Song.t)];
+             let%map () =
+               Agent.send_message
+                 ~emoji:`Pleading_face
+                 t.agent
+                 [%string "Retrying... ```%{error}```"]
+             in
+             `Repeat attempt
+           | Error _ ->
+             let%map () = Agent.send_message ~code:() ~emoji:`Fearful t.agent error in
+             `Finished ()))
     in
+    [%log.info [%here] "Done playing song" (guild_id : Guild_id.t) (song : Song.t)];
     t.playing <- None;
     play t
 ;;

@@ -20,13 +20,13 @@ let default_get_playlist_args = [ "--get-id"; "--flat-playlist" ]
 
 let download
   ?cancellation_token
-  ?on_error
+  ?on_finish
   ?(prog = default_prog)
   ?(args = default_download_args)
   url
   =
   let args = args @ [ url ] in
-  Stream_process.stream ?cancellation_token ?on_error ~prog ~args ()
+  Stream_process.stream ?cancellation_token ?on_finish ~prog ~args ()
 ;;
 
 let get_playlist ?(prog = default_prog) ?(args = default_get_playlist_args) url =

@@ -20,8 +20,8 @@ let args ?(bitrate = "128k") () =
     ]
 ;;
 
-let encode_pcm ?cancellation_token ?(prog = default_prog) ?bitrate stdin =
+let encode_pcm ?cancellation_token ?on_finish ?(prog = default_prog) ?bitrate stdin =
   let args = args ?bitrate () in
-  Stream_process.stream ?cancellation_token ~prog ~args ~stdin ()
+  Stream_process.stream ?cancellation_token ?on_finish ~prog ~args ~stdin ()
   >>|? Audio.Pcm_frame.read
 ;;
