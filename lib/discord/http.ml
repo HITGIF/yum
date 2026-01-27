@@ -3,9 +3,9 @@ open! Async
 open! Common
 open! Ppx_yojson_conv_lib.Yojson_conv.Primitives
 
-let headers ~auth_token =
+let headers ~auth_token ~user_agent =
   [ "authorization", "Bot " ^ Model.Auth_token.to_string auth_token
-  ; "user-agent", "Yum (https://github.com/hitgif/yum, 2.0)"
+  ; "user-agent", user_agent
   ; "content-Type", "application/json"
   ; "accept", "*/*"
   ]
@@ -41,6 +41,7 @@ let call
   (module Response_body : Response_body with type t = response_body)
   ?body
   ~auth_token
+  ~user_agent
   method_
   subpath
   =
@@ -56,7 +57,7 @@ let call
     `String (Json.to_string body)
   in
   let%bind response, body =
-    Cohttp_async.Client.call ~headers:(headers ~auth_token) ?body method_ url
+    Cohttp_async.Client.call ~headers:(headers ~auth_token ~user_agent) ?body method_ url
   in
   let status_code = Cohttp.Response.status response in
   let%bind body = Cohttp_async.Body.to_string body in
@@ -170,12 +171,13 @@ module Create_message = struct
     [@@deriving sexp_of, yojson_of]
   end
 
-  let call ~auth_token ~channel_id request =
+  let call ~auth_token ~user_agent ~channel_id request =
     call
       (module Json)
       `POST
       ~body:([%yojson_of: Request.t] request)
       ~auth_token
+      ~user_agent
       [ "channels"; Model.Channel_id.to_string channel_id; "messages" ]
   ;;
 end
@@ -211,12 +213,13 @@ module Respond_interaction = struct
     [@@deriving sexp_of, yojson_of]
   end
 
-  let call ~auth_token ~interation_id ~interaction_token request =
+  let call ~auth_token ~user_agent ~interation_id ~interaction_token request =
     call
       (module Json)
       `POST
       ~body:([%yojson_of: Request.t] request)
       ~auth_token
+      ~user_agent
       [ "interactions"
       ; Model.Interaction_id.to_string interation_id
       ; Model.Interaction_token.to_string interaction_token
@@ -229,11 +232,14 @@ module%test _ = struct
   let%expect_test "headers" =
     print_s
       [%sexp
-        (headers ~auth_token:(Model.Auth_token.of_string "test_token") : Cohttp.Header.t)];
+        (headers
+           ~auth_token:(Model.Auth_token.of_string "test_token")
+           ~user_agent:"Foo (https://github.com/foo/bar, 1.0)"
+         : Cohttp.Header.t)];
     [%expect
       {|
     ((authorization "Bot test_token")
-     (user-agent "Yum (https://github.com/hitgif/yum, 2.0)")
+     (user-agent "Foo (https://github.com/foo/bar, 1.0)")
      (content-Type application/json) (accept */*))
     |}];
     return ()

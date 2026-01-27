@@ -60,6 +60,7 @@ module Create_message : sig
 
   val call
     :  auth_token:Model.Auth_token.t
+    -> user_agent:string
     -> channel_id:Model.Channel_id.t
     -> Request.t
     -> Json.t Response.t Deferred.t
@@ -91,6 +92,7 @@ module Respond_interaction : sig
 
   val call
     :  auth_token:Model.Auth_token.t
+    -> user_agent:string
     -> interation_id:Model.Interaction_id.t
     -> interaction_token:Model.Interaction_token.t
     -> Request.t

@@ -1,6 +1,8 @@
 open! Core
 open! Async
 
+let user_agent = "Yum (https://github.com/hitgif/yum, 2.0)"
+
 module Emoji = struct
   type t =
     | Yum
@@ -69,6 +71,7 @@ let create ~auth_token ~channel_id = { auth_token; channel_id }
 let create_massage t request =
   Discord.Http.Create_message.call
     ~auth_token:t.auth_token
+    ~user_agent
     ~channel_id:t.channel_id
     request
   |> Deferred.ignore_m
@@ -133,6 +136,7 @@ let respond_interaction ?emoji ?emoji_end t id token message =
   let content = content ?emoji ?emoji_end (Some message) in
   Discord.Http.Respond_interaction.call
     ~auth_token:t.auth_token
+    ~user_agent
     ~interation_id:id
     ~interaction_token:token
     { type_ = Some Channel_message_with_source
