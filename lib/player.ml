@@ -298,13 +298,6 @@ let create
   ~default_songs
   ~frames_writer
   =
-  let songs = Songs.create ~default_songs in
-  let skip = Bvar.create () in
-  let on_song_start = Bvar.create () in
-  let on_songs_empty = Bvar.create () in
-  let on_new_frames_writer = Bvar.create () in
-  let started = Set_once.create () in
-  let closed = Set_once.create () in
   { ffmpeg_path
   ; yt_dlp_path
   ; guild_id
@@ -312,12 +305,12 @@ let create
   ; voice_channel
   ; frames_writer
   ; playing = None
-  ; songs
-  ; skip
-  ; on_song_start
-  ; on_songs_empty
-  ; on_new_frames_writer
-  ; started
-  ; closed
+  ; songs = Songs.create ~default_songs
+  ; skip = Bvar.create ()
+  ; on_song_start = Bvar.create ()
+  ; on_songs_empty = Bvar.create ()
+  ; on_new_frames_writer = Bvar.create ()
+  ; started = Set_once.create ()
+  ; closed = Set_once.create ()
   }
 ;;
