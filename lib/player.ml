@@ -9,36 +9,6 @@ open struct
   module Guild_id = Guild_id
 end
 
-module Inf_random_sequence : sig
-  type 'a t
-
-  val create : 'a Nonempty_list.t -> 'a t
-  val next : 'a t -> 'a
-end = struct
-  type 'a t =
-    { elements : 'a Nonempty_list.t
-    ; queue : 'a Queue.t
-    }
-
-  let enqueue t =
-    Nonempty_list.to_list t.elements |> List.permute |> Queue.enqueue_all t.queue
-  ;;
-
-  let create elements =
-    let t = { elements; queue = Queue.create () } in
-    enqueue t;
-    t
-  ;;
-
-  let rec next t =
-    match Queue.dequeue t.queue with
-    | Some element -> element
-    | None ->
-      enqueue t;
-      next t
-  ;;
-end
-
 module Songs = struct
   type t =
     { requested : Song.t Deque.t
@@ -56,6 +26,12 @@ module Songs = struct
     match Deque.dequeue_front t.requested with
     | Some song -> song
     | None -> Inf_random_sequence.next t.default
+  ;;
+
+  let peak t =
+    match Deque.peek_front t.requested with
+    | Some song -> song
+    | None -> Inf_random_sequence.peak t.default
   ;;
 end
 
@@ -75,6 +51,7 @@ type t =
   }
 
 let playing t = t.playing
+let next_song t = Songs.peak t.songs
 
 let close
   { ffmpeg_path = _

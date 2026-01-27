@@ -28,3 +28,4 @@ val skip : t -> unit
 (* state *)
 val started : t -> bool
 val playing : t -> Song.t option
+val next_song : t -> Song.t
