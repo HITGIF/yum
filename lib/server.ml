@@ -66,8 +66,14 @@ end
 let respond ?emoji ?emoji_end agent how_to_respond message =
   match how_to_respond with
   | `Send_message -> Agent.send_message ?emoji ?emoji_end agent message
-  | `Respond_interaction (id, token) ->
-    Agent.respond_interaction ?emoji ?emoji_end agent id token message
+  | `Respond_interaction (~interaction_id, ~interaction_token) ->
+    Agent.respond_interaction
+      ?emoji
+      ?emoji_end
+      agent
+      interaction_id
+      interaction_token
+      message
 ;;
 
 let join_user_voice ~state ~gateway ~agent ~guild_id ~user_id how_to_respond =
@@ -184,8 +190,8 @@ let handle_events ~state ~gateway event =
     |> ignore;
     return ()
   | Interaction
-      { id
-      ; token
+      { id = interaction_id
+      ; token = interaction_token
       ; guild_id
       ; channel_id
       ; user = { id = user_id; _ }
@@ -193,7 +199,7 @@ let handle_events ~state ~gateway event =
       ; component_type = _
       } ->
     let agent = Agent.create ~auth_token:state.auth_token ~channel_id in
-    let how_to_respond = `Respond_interaction (id, token) in
+    let how_to_respond = `Respond_interaction (~interaction_id, ~interaction_token) in
     (match Agent.Action.of_custom_id custom_id with
      | Skip -> handle_skip ~state ~guild_id ~agent how_to_respond
      | Play song ->
