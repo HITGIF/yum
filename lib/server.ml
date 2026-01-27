@@ -141,9 +141,8 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
      with
      | None -> return ()
      | Some player ->
-       (match Player.start_once player with
-        | `Ok -> return ()
-        | `Already_started -> Agent.send_message ~emoji_end:Yum agent "Rejoined"))
+       let%map () = Agent.send_message ~emoji_end:Yum agent "Started" in
+       Player.start_once player)
   | Stop ->
     State.close_player state ~guild_id;
     Discord.Gateway.leave_voice gateway ~guild_id

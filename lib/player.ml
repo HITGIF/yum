@@ -69,16 +69,12 @@ type t =
   ; mutable playing : Song.t option
   ; songs : Songs.t
   ; skip : (unit, read_write) Bvar.t
-  ; on_song_start : (Song.t, read_write) Bvar.t
-  ; on_songs_empty : (unit, read_write) Bvar.t
   ; on_new_frames_writer : (unit, read_write) Bvar.t
   ; started : unit Set_once.t
   ; closed : unit Set_once.t
   }
 
 let playing t = t.playing
-let on_song_start t = (t.on_song_start :> (Song.t, read) Bvar.t)
-let on_songs_empty t = (t.on_songs_empty :> (unit, read) Bvar.t)
 
 let close
   { ffmpeg_path = _
@@ -90,8 +86,6 @@ let close
   ; playing = _
   ; songs = _
   ; skip = _
-  ; on_song_start = _
-  ; on_songs_empty = _
   ; on_new_frames_writer = _
   ; started = _
   ; closed
@@ -151,7 +145,78 @@ let write_frames t frames_reader ~cancellation_token =
   Deferred.Or_error.ok_unit
 ;;
 
-let rec play ({ guild_id; _ } as t) =
+let play ~cancellation_token ({ guild_id; yt_dlp_path; ffmpeg_path; _ } as t) song =
+  let%with attempt = Deferred.repeat_until_finished (Attempt.create ~max:3 ()) in
+  let should_retry = Ivar.create () in
+  let process_result ~tag = function
+    | Ok () -> return ()
+    | Error error ->
+      let retryable = [ "HTTP Error 403: Forbidden" ] in
+      let ignorable = [ "Broken pipe" ] in
+      let is_ = List.exists ~f:(fun substring -> String.is_substring error ~substring) in
+      if is_ retryable
+      then (
+        Ivar.fill_if_empty should_retry error;
+        return ())
+      else if String.is_empty error || is_ ignorable
+      then return ()
+      else
+        Agent.send_message ~code:() ~emoji:Fearful t.agent [%string "[%{tag}] %{error}"]
+  in
+  let wait = ref [] in
+  let with_on_finish ~tag f =
+    let finish = Ivar.create () in
+    wait := Ivar.read finish :: !wait;
+    let on_finish result =
+      let%map () = process_result ~tag result in
+      Ivar.fill_exn finish ()
+    in
+    f on_finish
+  in
+  let%bind () =
+    let download () =
+      match Song.to_src song with
+      | `Youtube url ->
+        let%with on_finish = with_on_finish ~tag:"yt-dlp" in
+        Yt_dlp.download ~prog:yt_dlp_path ~cancellation_token ~on_finish url
+      | `Bilibili url -> Bilibili.download (Uri.of_string url)
+    in
+    let encode reader =
+      let%with on_finish = with_on_finish ~tag:"ffmpeg" in
+      Ffmpeg.encode_pcm ~prog:ffmpeg_path ~cancellation_token ~on_finish reader
+    in
+    match%bind download () >>=? encode >>=? write_frames t ~cancellation_token with
+    | Ok () -> return ()
+    | Error error ->
+      let%bind () =
+        let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
+        Agent.send_message ~code:() ~emoji:Fearful t.agent error
+      in
+      [%log.error
+        [%here]
+          "Error playing song"
+          (guild_id : Guild_id.t)
+          (song : Song.t)
+          (error : Error.t)];
+      return ()
+  in
+  let%bind () = Deferred.all_unit !wait in
+  match Ivar.peek should_retry with
+  | None -> return (`Finished ())
+  | Some error ->
+    (match Attempt.try_ attempt with
+     | Ok () ->
+       [%log.error [%here] "Retrying song..." (guild_id : Guild_id.t) (song : Song.t)];
+       let%map () =
+         Agent.send_message ~emoji:Repeat t.agent [%string "Retrying... ```%{error}```"]
+       in
+       `Repeat attempt
+     | Error _ ->
+       let%map () = Agent.send_message ~code:() ~emoji:Fearful t.agent error in
+       `Finished ())
+;;
+
+let rec play_loop ({ guild_id; _ } as t) =
   Todo.pause_when_channel_empty;
   match Set_once.is_some t.closed with
   | true ->
@@ -161,9 +226,8 @@ let rec play ({ guild_id; _ } as t) =
     let cancellation_token = Bvar.wait t.skip in
     let song = Songs.next t.songs in
     [%log.info [%here] "Playing song" (guild_id : Guild_id.t) (song : Song.t)];
+    let%bind () = Agent.send_message ~emoji:Arrow_forward t.agent (Song.to_url song) in
     let%bind () =
-      let url = Song.to_url song in
-      let%bind () = Agent.send_message ~emoji:Arrow_forward t.agent url in
       Agent.send_message'
         ~buttons:
           [ { style = Danger; action = Skip; label = Some "Skip" }
@@ -174,92 +238,16 @@ let rec play ({ guild_id; _ } as t) =
         None
     in
     t.playing <- Some song;
-    Bvar.broadcast t.on_song_start song;
-    let%bind () =
-      Deferred.repeat_until_finished (Attempt.create ~max:3 ()) (fun attempt ->
-        let wait_before_next_song = ref [] in
-        let should_retry = Ivar.create () in
-        let%bind () =
-          let download () =
-            match Song.to_src song with
-            | `Youtube url ->
-              let finish = Ivar.create () in
-              wait_before_next_song := Ivar.read finish :: !wait_before_next_song;
-              Yt_dlp.download
-                ~prog:t.yt_dlp_path
-                ~cancellation_token
-                ~on_finish:(fun result ->
-                  let%map () =
-                    match result with
-                    | Ok () -> return ()
-                    | Error error ->
-                      let retryable = [ "HTTP Error 403: Forbidden" ] in
-                      let ignorable = [ "Broken pipe" ] in
-                      let is_ =
-                        List.exists ~f:(fun substring ->
-                          String.is_substring error ~substring)
-                      in
-                      if is_ retryable
-                      then (
-                        Ivar.fill_if_empty should_retry error;
-                        return ())
-                      else if is_ ignorable
-                      then return ()
-                      else Agent.send_message ~code:() ~emoji:Fearful t.agent error
-                  in
-                  Ivar.fill_exn finish ())
-                url
-            | `Bilibili url -> Bilibili.download (Uri.of_string url)
-          in
-          match%bind
-            download ()
-            >>=? Ffmpeg.encode_pcm ~prog:t.ffmpeg_path ~cancellation_token
-            >>=? write_frames t ~cancellation_token
-          with
-          | Ok () -> return ()
-          | Error error ->
-            let%bind () =
-              let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
-              Agent.send_message ~code:() ~emoji:Fearful t.agent error
-            in
-            [%log.error
-              [%here]
-                "Error playing song"
-                (guild_id : Guild_id.t)
-                (song : Song.t)
-                (error : Error.t)];
-            return ()
-        in
-        let%bind () = Deferred.all_unit !wait_before_next_song in
-        match Ivar.peek should_retry with
-        | None -> return (`Finished ())
-        | Some error ->
-          (match Attempt.try_ attempt with
-           | Ok () ->
-             [%log.error
-               [%here] "Retrying song..." (guild_id : Guild_id.t) (song : Song.t)];
-             let%map () =
-               Agent.send_message
-                 ~emoji:Repeat
-                 t.agent
-                 [%string "Retrying... ```%{error}```"]
-             in
-             `Repeat attempt
-           | Error _ ->
-             let%map () = Agent.send_message ~code:() ~emoji:Fearful t.agent error in
-             `Finished ()))
-    in
-    [%log.info [%here] "Done playing song" (guild_id : Guild_id.t) (song : Song.t)];
+    let%bind () = play ~cancellation_token t song in
     t.playing <- None;
-    play t
+    [%log.info [%here] "Done playing song" (guild_id : Guild_id.t) (song : Song.t)];
+    play_loop t
 ;;
 
 let start_once t =
   match Set_once.set t.started () with
-  | Error _ -> `Already_started
-  | Ok () ->
-    play t |> don't_wait_for;
-    `Ok
+  | Error _ -> ()
+  | Ok () -> play_loop t |> don't_wait_for
 ;;
 
 let started t = Set_once.is_some t.started
@@ -307,8 +295,6 @@ let create
   ; playing = None
   ; songs = Songs.create ~default_songs
   ; skip = Bvar.create ()
-  ; on_song_start = Bvar.create ()
-  ; on_songs_empty = Bvar.create ()
   ; on_new_frames_writer = Bvar.create ()
   ; started = Set_once.create ()
   ; closed = Set_once.create ()
