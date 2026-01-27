@@ -12,11 +12,11 @@ end
 module Songs = struct
   type t =
     { requested : Song.t Deque.t
-    ; default : Song.t Inf_random_sequence.t
+    ; idle : Song.t Inf_random_sequence.t
     }
 
-  let create ~default_songs =
-    { requested = Deque.create (); default = Inf_random_sequence.create default_songs }
+  let create ~idle_songs =
+    { requested = Deque.create (); idle = Inf_random_sequence.create idle_songs }
   ;;
 
   let enqueue_front t = Deque.enqueue_front t.requested
@@ -25,13 +25,13 @@ module Songs = struct
   let next t =
     match Deque.dequeue_front t.requested with
     | Some song -> song
-    | None -> Inf_random_sequence.next t.default
+    | None -> Inf_random_sequence.next t.idle
   ;;
 
   let peak t =
     match Deque.peek_front t.requested with
     | Some song -> song
-    | None -> Inf_random_sequence.peak t.default
+    | None -> Inf_random_sequence.peak t.idle
   ;;
 end
 
@@ -260,7 +260,7 @@ let create
   ~guild_id
   ~agent
   ~voice_channel
-  ~default_songs
+  ~idle_songs
   ~frames_writer
   =
   { ffmpeg_path
@@ -270,7 +270,7 @@ let create
   ; voice_channel
   ; frames_writer
   ; playing = None
-  ; songs = Songs.create ~default_songs
+  ; songs = Songs.create ~idle_songs
   ; skip = Bvar.create ()
   ; on_new_frames_writer = Bvar.create ()
   ; started = Set_once.create ()

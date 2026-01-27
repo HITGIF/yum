@@ -9,7 +9,7 @@ val create
   -> guild_id:Discord.Model.Guild_id.t
   -> agent:Agent.t
   -> voice_channel:Discord.Model.Channel_id.t
-  -> default_songs:Song.t Nonempty_list.t
+  -> idle_songs:Song.t Nonempty_list.t
   -> frames_writer:Audio.Pcm_frame.t Queue.t Pipe.Writer.t option
   -> t
 

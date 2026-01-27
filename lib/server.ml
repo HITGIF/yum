@@ -16,15 +16,15 @@ module State = struct
   type t =
     { auth_token : Auth_token.t
     ; players : Player.t Guild_id.Table.t
-    ; default_songs : Song.t Nonempty_list.t
+    ; idle_songs : Song.t Nonempty_list.t
     ; ffmpeg_path : File_path.Absolute.t
     ; yt_dlp_path : File_path.Absolute.t
     }
 
-  let create ~auth_token ~default_songs ~ffmpeg_path ~yt_dlp_path () =
+  let create ~auth_token ~idle_songs ~ffmpeg_path ~yt_dlp_path () =
     { auth_token
     ; players = Guild_id.Table.create ()
-    ; default_songs
+    ; idle_songs
     ; ffmpeg_path
     ; yt_dlp_path
     }
@@ -51,7 +51,7 @@ module State = struct
             ~guild_id
             ~agent
             ~voice_channel
-            ~default_songs:t.default_songs
+            ~idle_songs:t.idle_songs
             ~frames_writer
         in
         player
@@ -242,7 +242,7 @@ let run ~discord_bot_token:auth_token ~youtube_songs ~ffmpeg_path ~yt_dlp_path (
   Scheduler.report_long_cycle_times ~cutoff:(Time_float.Span.of_int_ms 100) ();
   let youtube_songs = read_youtube_songs youtube_songs in
   let state =
-    State.create ~auth_token ~default_songs:youtube_songs ~ffmpeg_path ~yt_dlp_path ()
+    State.create ~auth_token ~idle_songs:youtube_songs ~ffmpeg_path ~yt_dlp_path ()
   in
   let%with (`Shutdown shutdown) = Graceful_shutdown.with_ in
   let%with gateway =
