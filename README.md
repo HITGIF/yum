@@ -35,13 +35,18 @@ sudo apt install -y ffmpeg
 wget -O yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
 chmod +x yt-dlp
 sudo mv yt-dlp /usr/bin # or somewhere else you prefer
+sudo yt-dlp --update-to nightly
 ```
-5. Download [yum](https://github.com/HITGIF/yum)
+5. Install [deno](https://deno.com/)
+```sh
+curl -fsSL https://deno.land/install.sh | sh
+```
+6. Download [yum](https://github.com/HITGIF/yum)
 ```sh
 wget https://github.com/HITGIF/yum/releases/latest/download/yum
 chmod +x yum
 ```
-6. Make a playlist file containing a list of YouTube video IDs, e.g. [mine](https://gist.github.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c)
+7. Make a playlist file containing a list of YouTube video IDs, e.g. [mine](https://gist.github.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c)
 ```sh
 wget https://gist.githubusercontent.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c/raw/72302e5dda15b3d2e535495b989351a814d38e29/videos.txt
 ```
