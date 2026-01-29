@@ -129,7 +129,9 @@ let play ~cancellation_token ({ guild_id; yt_dlp_path; ffmpeg_path; _ } as t) so
     | Ok () -> return ()
     | Error error ->
       let retryable = [ "HTTP Error 403: Forbidden" ] in
-      let ignorable = [ "Broken pipe" ] in
+      let ignorable =
+        [ "Broken pipe"; "Did not get any data blocks"; "Interrupted by user" ]
+      in
       let is_ = List.exists ~f:(fun substring -> String.is_substring error ~substring) in
       if is_ retryable
       then (
