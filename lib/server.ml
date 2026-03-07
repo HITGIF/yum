@@ -16,15 +16,15 @@ module State = struct
   type t =
     { auth_token : Auth_token.t
     ; players : Player.t Guild_id.Table.t
-    ; default_songs : Song.t Nonempty_list.t
+    ; idle_songs : Song.t Nonempty_list.t
     ; ffmpeg_path : File_path.Absolute.t
     ; yt_dlp_path : File_path.Absolute.t
     }
 
-  let create ~auth_token ~default_songs ~ffmpeg_path ~yt_dlp_path () =
+  let create ~auth_token ~idle_songs ~ffmpeg_path ~yt_dlp_path () =
     { auth_token
     ; players = Guild_id.Table.create ()
-    ; default_songs
+    ; idle_songs
     ; ffmpeg_path
     ; yt_dlp_path
     }
@@ -37,118 +37,145 @@ module State = struct
     Hashtbl.remove t.players guild_id
   ;;
 
-  let set_player ?message_channel t ~guild_id ~voice_channel ~frames_writer =
+  let set_player ?agent t ~guild_id ~voice_channel ~frames_writer =
     Hashtbl.update_and_return t.players guild_id ~f:(function
       | None ->
-        let message_channel = Option.value message_channel ~default:voice_channel in
+        let agent =
+          Option.value_or_thunk agent ~default:(fun () ->
+            Agent.create ~auth_token:t.auth_token ~channel_id:voice_channel)
+        in
         let player =
           Player.create
-            ~auth_token:t.auth_token
             ~ffmpeg_path:t.ffmpeg_path
             ~yt_dlp_path:t.yt_dlp_path
             ~guild_id
+            ~agent
             ~voice_channel
-            ~message_channel
-            ~default_songs:t.default_songs
+            ~idle_songs:t.idle_songs
             ~frames_writer
         in
         player
       | Some player ->
-        Option.iter message_channel ~f:(Player.set_message_channel player);
+        Option.iter agent ~f:(Player.set_agent player);
         Player.set_voice_channel player voice_channel;
         Player.set_frames_writer player frames_writer;
         player)
   ;;
-
-  let send_message t channel_id content =
-    Discord.Http.Create_message.call
-      ~auth_token:t.auth_token
-      ~channel_id
-      { content = Some (Dedent.string content) }
-    |> Deferred.ignore_m
-  ;;
 end
 
-let join_user_voice ~state ~gateway ~guild_id ~message_channel ~user_id =
+let respond ?emoji ?emoji_end agent how_to_respond message =
+  match how_to_respond with
+  | `Send_message -> Agent.send_message ?emoji ?emoji_end agent message
+  | `Respond_interaction (~interaction_id, ~interaction_token) ->
+    Agent.respond_interaction
+      ?emoji
+      ?emoji_end
+      agent
+      interaction_id
+      interaction_token
+      message
+;;
+
+let join_user_voice ~state ~gateway ~agent ~guild_id ~user_id how_to_respond =
   match%bind Discord.Gateway.join_user_voice gateway ~guild_id ~user_id with
   | `Ok voice_channel ->
-    State.set_player state ~guild_id ~voice_channel ~message_channel ~frames_writer:None
+    State.set_player state ~agent ~guild_id ~voice_channel ~frames_writer:None
     |> Some
     |> return
   | `User_not_in_voice_channel ->
-    let%bind () =
-      State.send_message state message_channel "Join a voice channel first :thinking:"
+    let%map () =
+      respond ~emoji_end:Pleading_face agent how_to_respond "Join a voice channel first"
     in
-    return None
+    None
 ;;
 
-let player_or_join_user ~state ~gateway ~guild_id ~message_channel ~user_id =
+let player_or_join_user ~state ~gateway ~agent ~guild_id ~user_id how_to_respond =
   match State.player state ~guild_id with
   | Some player ->
-    Player.set_message_channel player message_channel;
+    Player.set_agent player agent;
     Some player |> return
-  | None -> join_user_voice ~state ~gateway ~guild_id ~message_channel ~user_id
+  | None -> join_user_voice ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
 ;;
 
-let handle_command ~state ~gateway ~guild_id ~message_channel ~user_id command =
-  let send_message = State.send_message state in
+let handle_skip ~state ~guild_id ~agent how_to_respond =
+  match State.player state ~guild_id with
+  | None ->
+    let%bind () = respond ~emoji_end:Thinking agent how_to_respond "Not playing" in
+    return ()
+  | Some player ->
+    let%bind () = respond ~emoji_end:Fast_forward agent how_to_respond "Skipped" in
+    Player.set_agent player agent;
+    Player.skip player;
+    return ()
+;;
+
+let handle_play ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond =
+  match%bind
+    player_or_join_user ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
+  with
+  | None -> return ()
+  | Some player ->
+    if Player.started player
+    then (
+      Player.queue player song;
+      respond ~emoji_end:Arrow_double_up agent how_to_respond "Queued")
+    else (
+      let%map () = respond ~emoji_end:Arrow_forward agent how_to_respond "Playing" in
+      Player.queue player song;
+      Player.start_once player |> ignore)
+;;
+
+let handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond =
+  match%bind
+    player_or_join_user ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
+  with
+  | None -> return ()
+  | Some player ->
+    let%map () = respond ~emoji_end:Arrow_forward agent how_to_respond "Playing" in
+    Player.play_now player song;
+    Player.start_once player |> ignore
+;;
+
+let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
+  let how_to_respond = `Send_message in
   match (command : Yum_command.t) with
-  | Help -> send_message message_channel Yum_command.help_text
-  | Ping -> send_message message_channel ":yum:"
+  | Help -> Agent.send_message agent Yum_command.help_text
+  | Ping -> Agent.send_message agent ~emoji:Yum ""
   | Start ->
-    (match%bind join_user_voice ~state ~gateway ~guild_id ~message_channel ~user_id with
+    (match%bind
+       join_user_voice ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
+     with
      | None -> return ()
      | Some player ->
-       (match Player.start_once player with
-        | `Ok -> return ()
-        | `Already_started -> send_message message_channel "Rejoined :yum:"))
+       let%map () = Agent.send_message ~emoji_end:Yum agent "Started" in
+       Player.start_once player)
   | Stop ->
     State.close_player state ~guild_id;
     Discord.Gateway.leave_voice gateway ~guild_id
-  | Skip ->
-    (match State.player state ~guild_id with
-     | None -> return ()
-     | Some player ->
-       Player.set_message_channel player message_channel;
-       Player.skip player;
-       return ())
+  | Skip -> handle_skip ~state ~guild_id ~agent how_to_respond
   | Play song ->
-    (match%bind
-       player_or_join_user ~state ~gateway ~guild_id ~message_channel ~user_id
-     with
-     | None -> return ()
-     | Some player ->
-       Player.queue player song;
-       (match Player.start_once player with
-        | `Ok -> return ()
-        | `Already_started -> send_message message_channel "Queued :yum:"))
+    handle_play ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
   | Play_now song ->
-    (match%bind
-       player_or_join_user ~state ~gateway ~guild_id ~message_channel ~user_id
-     with
-     | None -> return ()
-     | Some player ->
-       Player.play_now player song;
-       Player.start_once player |> ignore;
-       return ())
+    handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
   | Play_list playlist ->
     (match Song.Playlist.to_src playlist with
      | `Youtube url ->
        (match%bind Yt_dlp.get_playlist url with
         | Error error ->
           let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
-          send_message message_channel [%string ":fearful: ```%{error}```"]
+          Agent.send_message ~code:() ~emoji:Fearful agent error
         | Ok songs ->
           (match%bind
-             player_or_join_user ~state ~gateway ~guild_id ~message_channel ~user_id
+             player_or_join_user ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
            with
            | None -> return ()
            | Some player ->
              Player.queue_all player songs;
              Player.start_once player |> ignore;
-             send_message
-               message_channel
-               [%string "Queued %{List.length songs#Int} songs :yum:"])))
+             Agent.send_message
+               ~emoji_end:Arrow_double_up
+               agent
+               [%string "Queued %{List.length songs#Int} songs"])))
 ;;
 
 let handle_events ~state ~gateway event =
@@ -162,6 +189,24 @@ let handle_events ~state ~gateway event =
       ~frames_writer:(Some frames_writer)
     |> ignore;
     return ()
+  | Interaction
+      { id = interaction_id
+      ; token = interaction_token
+      ; guild_id
+      ; channel_id
+      ; user = { id = user_id; _ }
+      ; custom_id
+      ; component_type = _
+      } ->
+    let agent = Agent.create ~auth_token:state.auth_token ~channel_id in
+    let how_to_respond = `Respond_interaction (~interaction_id, ~interaction_token) in
+    (match Agent.Action.of_custom_id custom_id with
+     | Skip -> handle_skip ~state ~guild_id ~agent how_to_respond
+     | Play song ->
+       handle_play ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
+     | Play_now song ->
+       handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
+     | Unknown _ -> return ())
   | Message
       { id = message_id
       ; guild_id
@@ -178,13 +223,16 @@ let handle_events ~state ~gateway event =
          [%here] "Ignoring message without guild ID" (message_id : Message_id.t)];
        return ()
      | Some guild_id ->
+       let agent =
+         Agent.create ~auth_token:state.auth_token ~channel_id:message_channel
+       in
        (match Yum_command.parse content with
         | Ok None -> return ()
         | Ok (Some command) ->
-          handle_command ~state ~gateway ~guild_id ~message_channel ~user_id command
+          handle_command ~state ~gateway ~agent ~guild_id ~user_id command
         | Error error ->
           let error = Error.to_string_hum error in
-          State.send_message state message_channel [%string ":pleading_face: %{error}"]))
+          Agent.send_message ~emoji_end:Pleading_face agent error))
 ;;
 
 let read_youtube_songs filename =
@@ -200,7 +248,7 @@ let run ~discord_bot_token:auth_token ~youtube_songs ~ffmpeg_path ~yt_dlp_path (
   Scheduler.report_long_cycle_times ~cutoff:(Time_float.Span.of_int_ms 100) ();
   let youtube_songs = read_youtube_songs youtube_songs in
   let state =
-    State.create ~auth_token ~default_songs:youtube_songs ~ffmpeg_path ~yt_dlp_path ()
+    State.create ~auth_token ~idle_songs:youtube_songs ~ffmpeg_path ~yt_dlp_path ()
   in
   let%with (`Shutdown shutdown) = Graceful_shutdown.with_ in
   let%with gateway =

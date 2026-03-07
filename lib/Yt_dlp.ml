@@ -7,8 +7,7 @@ let default_prog = File_path.Absolute.of_string "/usr/bin/yt-dlp"
 let default_download_args =
   [ "--quiet"; "--no-warnings"; "--no-progress"; "--no-continue" ]
   @ List.concat
-      [ [ "--format"; "bestaudio" ]
-      ; [ "--user-agent"
+      [ [ "--user-agent"
         ; "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) \
            Chrome/127.0.6533.103 Mobile Safari/537.36"
         ]
@@ -20,12 +19,13 @@ let default_get_playlist_args = [ "--get-id"; "--flat-playlist" ]
 
 let download
   ?cancellation_token
+  ?on_finish
   ?(prog = default_prog)
   ?(args = default_download_args)
   url
   =
   let args = args @ [ url ] in
-  Stream_process.stream ?cancellation_token ~prog ~args ()
+  Stream_process.stream ?cancellation_token ?on_finish ~prog ~args ()
 ;;
 
 let get_playlist ?(prog = default_prog) ?(args = default_get_playlist_args) url =

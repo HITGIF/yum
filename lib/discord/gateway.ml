@@ -12,6 +12,15 @@ end
 module Event = struct
   type t =
     | Message of Model.Message.t
+    | Interaction of
+        { id : Model.Interaction_id.t
+        ; token : Model.Interaction_token.t
+        ; guild_id : Model.Guild_id.t
+        ; channel_id : Model.Channel_id.t
+        ; user : Model.User.t
+        ; custom_id : string
+        ; component_type : int
+        }
     | Voice_connected of { guild_id : Model.Guild_id.t }
     | Voice of
         { guild_id : Model.Guild_id.t
@@ -546,6 +555,28 @@ and handle_voice_server_update
       [%here] "Ignoring [Voice_server_update] in unexpected state" (state : State.t)];
     return ()
 
+and handle_interaction_create
+  t
+  { Model.Gateway.Event.Dispatch.Interaction_create.id
+  ; token
+  ; guild_id
+  ; channel_id
+  ; application_id
+  ; member = { user }
+  ; data = { custom_id; component_type }
+  }
+  =
+  match t.state with
+  | Connected { state = Ready { user = { id = self_user_id; _ }; _ }; _ } ->
+    if [%equal: Model.User_id.t] application_id self_user_id
+    then
+      emit
+        t
+        (Interaction { id; token; guild_id; channel_id; user; custom_id; component_type })
+  | state ->
+    [%log.error
+      [%here] "Ignoring [Interaction_create] in unexpected state" (state : State.t)]
+
 and handle_event t (event : Model.Gateway.Event.Receivable.t) =
   match event with
   | Hello hello -> handle_hello t hello
@@ -568,6 +599,9 @@ and handle_event t (event : Model.Gateway.Event.Receivable.t) =
     handle_voice_server_update t voice_server_update
   | Dispatch (Message_create message) ->
     emit t (Message message);
+    return ()
+  | Dispatch (Interaction_create interation_create) ->
+    handle_interaction_create t interation_create;
     return ()
   | Heartbeat_ack ->
     handle_heartbeat_ack t;
@@ -646,7 +680,9 @@ and resume t =
     let%bind disconnected = disconnect t in
     [%log.info [%here] "Resuming..."];
     (match%bind
-       Cohttp_async_websocket.Client.create' (formulate_url resume_gateway_url)
+       Websocket_connector.connect
+         ~time_source:t.time_source
+         (formulate_url resume_gateway_url)
      with
      | Ok (response, ws) ->
        [%log.info [%here] "Reconnected"];
@@ -670,7 +706,9 @@ and connect t =
   | Disconnected disconnected ->
     [%log.info [%here] "Connecting..."];
     let%bind.Deferred.Or_error response, ws =
-      Cohttp_async_websocket.Client.create' (formulate_url t.initial_gateway_url)
+      Websocket_connector.connect
+        ~time_source:t.time_source
+        (formulate_url t.initial_gateway_url)
     in
     [%log.info [%here] "Connected"];
     [%log.debug [%here] (response : Cohttp.Response.t)];

@@ -1,6 +1,6 @@
 open! Core
 
-type t [@@deriving sexp_of]
+type t [@@deriving sexp]
 
 val of_youtube_string : string -> t
 val to_url : t -> string

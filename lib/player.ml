@@ -9,44 +9,14 @@ open struct
   module Guild_id = Guild_id
 end
 
-module Inf_random_sequence : sig
-  type 'a t
-
-  val create : 'a Nonempty_list.t -> 'a t
-  val next : 'a t -> 'a
-end = struct
-  type 'a t =
-    { elements : 'a Nonempty_list.t
-    ; queue : 'a Queue.t
-    }
-
-  let enqueue t =
-    Nonempty_list.to_list t.elements |> List.permute |> Queue.enqueue_all t.queue
-  ;;
-
-  let create elements =
-    let t = { elements; queue = Queue.create () } in
-    enqueue t;
-    t
-  ;;
-
-  let rec next t =
-    match Queue.dequeue t.queue with
-    | Some element -> element
-    | None ->
-      enqueue t;
-      next t
-  ;;
-end
-
 module Songs = struct
   type t =
     { requested : Song.t Deque.t
-    ; default : Song.t Inf_random_sequence.t
+    ; idle : Song.t Inf_random_sequence.t
     }
 
-  let create ~default_songs =
-    { requested = Deque.create (); default = Inf_random_sequence.create default_songs }
+  let create ~idle_songs =
+    { requested = Deque.create (); idle = Inf_random_sequence.create idle_songs }
   ;;
 
   let enqueue_front t = Deque.enqueue_front t.requested
@@ -55,45 +25,44 @@ module Songs = struct
   let next t =
     match Deque.dequeue_front t.requested with
     | Some song -> song
-    | None -> Inf_random_sequence.next t.default
+    | None -> Inf_random_sequence.next t.idle
+  ;;
+
+  let peak t =
+    match Deque.peek_front t.requested with
+    | Some song -> song
+    | None -> Inf_random_sequence.peak t.idle
   ;;
 end
 
 type t =
-  { auth_token : Auth_token.t
-  ; ffmpeg_path : File_path.Absolute.t
+  { ffmpeg_path : File_path.Absolute.t
   ; yt_dlp_path : File_path.Absolute.t
   ; guild_id : Guild_id.t
+  ; mutable agent : Agent.t
   ; mutable voice_channel : Channel_id.t
-  ; mutable message_channel : Channel_id.t
   ; mutable frames_writer : Audio.Pcm_frame.t Queue.t Pipe.Writer.t option
   ; mutable playing : Song.t option
   ; songs : Songs.t
   ; skip : (unit, read_write) Bvar.t
-  ; on_song_start : (Song.t, read_write) Bvar.t
-  ; on_songs_empty : (unit, read_write) Bvar.t
   ; on_new_frames_writer : (unit, read_write) Bvar.t
   ; started : unit Set_once.t
   ; closed : unit Set_once.t
   }
 
 let playing t = t.playing
-let on_song_start t = (t.on_song_start :> (Song.t, read) Bvar.t)
-let on_songs_empty t = (t.on_songs_empty :> (unit, read) Bvar.t)
+let next_song t = Songs.peak t.songs
 
 let close
-  { auth_token = _
-  ; ffmpeg_path = _
+  { ffmpeg_path = _
   ; yt_dlp_path = _
   ; guild_id
+  ; agent = _
   ; voice_channel = _
-  ; message_channel = _
   ; frames_writer
   ; playing = _
   ; songs = _
   ; skip = _
-  ; on_song_start = _
-  ; on_songs_empty = _
   ; on_new_frames_writer = _
   ; started = _
   ; closed
@@ -104,8 +73,8 @@ let close
   Option.iter frames_writer ~f:Pipe.close
 ;;
 
+let set_agent t agent = t.agent <- agent
 let set_voice_channel t channel_id = t.voice_channel <- channel_id
-let set_message_channel t channel_id = t.message_channel <- channel_id
 
 let set_frames_writer t frames_writer =
   let old_frames_writer = t.frames_writer in
@@ -153,7 +122,80 @@ let write_frames t frames_reader ~cancellation_token =
   Deferred.Or_error.ok_unit
 ;;
 
-let rec play ({ guild_id; _ } as t) =
+let play ~cancellation_token ({ guild_id; yt_dlp_path; ffmpeg_path; _ } as t) song =
+  let%with attempt = Deferred.repeat_until_finished (Attempt.create ~max:3 ()) in
+  let should_retry = Ivar.create () in
+  let process_result ~tag = function
+    | Ok () -> return ()
+    | Error error ->
+      let retryable = [ "HTTP Error 403: Forbidden" ] in
+      let ignorable =
+        [ "Broken pipe"; "Did not get any data blocks"; "Interrupted by user" ]
+      in
+      let is_ = List.exists ~f:(fun substring -> String.is_substring error ~substring) in
+      if is_ retryable
+      then (
+        Ivar.fill_if_empty should_retry error;
+        return ())
+      else if String.is_empty error || is_ ignorable
+      then return ()
+      else
+        Agent.send_message ~code:() ~emoji:Fearful t.agent [%string "[%{tag}] %{error}"]
+  in
+  let wait = ref [] in
+  let with_on_finish ~tag f =
+    let finish = Ivar.create () in
+    wait := Ivar.read finish :: !wait;
+    let on_finish result =
+      let%map () = process_result ~tag result in
+      Ivar.fill_exn finish ()
+    in
+    f on_finish
+  in
+  let%bind () =
+    let download () =
+      match Song.to_src song with
+      | `Youtube url ->
+        let%with on_finish = with_on_finish ~tag:"yt-dlp" in
+        Yt_dlp.download ~prog:yt_dlp_path ~cancellation_token ~on_finish url
+      | `Bilibili url -> Bilibili.download (Uri.of_string url)
+    in
+    let encode reader =
+      let%with on_finish = with_on_finish ~tag:"ffmpeg" in
+      Ffmpeg.encode_pcm ~prog:ffmpeg_path ~cancellation_token ~on_finish reader
+    in
+    match%bind download () >>=? encode >>=? write_frames t ~cancellation_token with
+    | Ok () -> return ()
+    | Error error ->
+      let%bind () =
+        let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
+        Agent.send_message ~code:() ~emoji:Fearful t.agent error
+      in
+      [%log.error
+        [%here]
+          "Error playing song"
+          (guild_id : Guild_id.t)
+          (song : Song.t)
+          (error : Error.t)];
+      return ()
+  in
+  let%bind () = Deferred.all_unit !wait in
+  match Ivar.peek should_retry with
+  | None -> return (`Finished ())
+  | Some error ->
+    (match Attempt.try_ attempt with
+     | Ok () ->
+       [%log.error [%here] "Retrying song..." (guild_id : Guild_id.t) (song : Song.t)];
+       let%map () =
+         Agent.send_message ~emoji:Repeat t.agent [%string "Retrying... ```%{error}```"]
+       in
+       `Repeat attempt
+     | Error _ ->
+       let%map () = Agent.send_message ~code:() ~emoji:Fearful t.agent error in
+       `Finished ())
+;;
+
+let rec play_loop ({ guild_id; _ } as t) =
   Todo.pause_when_channel_empty;
   match Set_once.is_some t.closed with
   | true ->
@@ -163,58 +205,31 @@ let rec play ({ guild_id; _ } as t) =
     let cancellation_token = Bvar.wait t.skip in
     let song = Songs.next t.songs in
     [%log.info [%here] "Playing song" (guild_id : Guild_id.t) (song : Song.t)];
+    let%bind () = Agent.send_message ~emoji:Arrow_forward t.agent (Song.to_url song) in
     let%bind () =
-      let url = Song.to_url song in
-      Discord.Http.Create_message.call
-        ~auth_token:t.auth_token
-        ~channel_id:t.message_channel
-        { content = Some [%string ":yum: %{url}"] }
-      |> Deferred.ignore_m
+      Agent.send_message'
+        ~buttons:
+          [ { style = Danger; action = Skip; label = Some "Skip" }
+          ; { style = Primary; action = Play song; label = Some "Play" }
+          ; { style = Success; action = Play_now song; label = Some "Play!" }
+          ]
+        t.agent
+        None
     in
     t.playing <- Some song;
-    Bvar.broadcast t.on_song_start song;
-    let%bind () =
-      let download () =
-        match Song.to_src song with
-        | `Youtube url -> Yt_dlp.download ~prog:t.yt_dlp_path ~cancellation_token url
-        | `Bilibili url -> Bilibili.download (Uri.of_string url)
-      in
-      match%bind
-        download ()
-        >>=? Ffmpeg.encode_pcm ~prog:t.ffmpeg_path ~cancellation_token
-        >>=? write_frames t ~cancellation_token
-      with
-      | Ok () ->
-        [%log.info [%here] "Done playing song" (guild_id : Guild_id.t) (song : Song.t)];
-        return ()
-      | Error error ->
-        let%bind () =
-          let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
-          Discord.Http.Create_message.call
-            ~auth_token:t.auth_token
-            ~channel_id:t.message_channel
-            { content = Some [%string ":fearful: ```%{error}```"] }
-          |> Deferred.ignore_m
-        in
-        [%log.error
-          [%here]
-            "Error playing song"
-            (guild_id : Guild_id.t)
-            (song : Song.t)
-            (error : Error.t)];
-        return ()
-    in
+    let%bind () = play ~cancellation_token t song in
     t.playing <- None;
-    play t
+    [%log.info [%here] "Done playing song" (guild_id : Guild_id.t) (song : Song.t)];
+    play_loop t
 ;;
 
 let start_once t =
   match Set_once.set t.started () with
-  | Error _ -> `Already_started
-  | Ok () ->
-    play t |> don't_wait_for;
-    `Ok
+  | Error _ -> ()
+  | Ok () -> play_loop t |> don't_wait_for
 ;;
+
+let started t = Set_once.is_some t.started
 
 let queue ({ guild_id; _ } as t) song =
   [%log.info [%here] "Queueing song" (guild_id : Guild_id.t) (song : Song.t)];
@@ -242,36 +257,25 @@ let skip { guild_id; skip; _ } =
 ;;
 
 let create
-  ~auth_token
   ~ffmpeg_path
   ~yt_dlp_path
   ~guild_id
+  ~agent
   ~voice_channel
-  ~message_channel
-  ~default_songs
+  ~idle_songs
   ~frames_writer
   =
-  let songs = Songs.create ~default_songs in
-  let skip = Bvar.create () in
-  let on_song_start = Bvar.create () in
-  let on_songs_empty = Bvar.create () in
-  let on_new_frames_writer = Bvar.create () in
-  let started = Set_once.create () in
-  let closed = Set_once.create () in
-  { auth_token
-  ; ffmpeg_path
+  { ffmpeg_path
   ; yt_dlp_path
   ; guild_id
+  ; agent
   ; voice_channel
-  ; message_channel
   ; frames_writer
   ; playing = None
-  ; songs
-  ; skip
-  ; on_song_start
-  ; on_songs_empty
-  ; on_new_frames_writer
-  ; started
-  ; closed
+  ; songs = Songs.create ~idle_songs
+  ; skip = Bvar.create ()
+  ; on_new_frames_writer = Bvar.create ()
+  ; started = Set_once.create ()
+  ; closed = Set_once.create ()
   }
 ;;

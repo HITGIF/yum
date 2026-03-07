@@ -527,7 +527,7 @@ and resume t =
       let%bind () = disconnect t in
       [%log.info [%here] "Resuming..." ~guild_id:(t.guild_id : Model.Guild_id.t)];
       let%bind.Deferred.Or_error response, ws =
-        Cohttp_async_websocket.Client.create' (formulate_url t.endpoint)
+        Websocket_connector.connect ~time_source:t.time_source (formulate_url t.endpoint)
       in
       [%log.info [%here] "Reconnected" ~guild_id:(t.guild_id : Model.Guild_id.t)];
       [%log.debug [%here] (response : Cohttp.Response.t)];
@@ -561,25 +561,8 @@ and connect t =
          [%message "Already connected" ~guild_id:(t.guild_id : Model.Guild_id.t)])
   | Disconnected ->
     [%log.info [%here] "Connecting..." ~guild_id:(t.guild_id : Model.Guild_id.t)];
-    let attempt = Attempt.create ~max:3 () in
-    let retry_after = Time_ns.Span.of_int_sec 5 in
     let%bind.Deferred.Or_error response, ws =
-      Deferred.repeat_until_finished () (fun () ->
-        match%bind Cohttp_async_websocket.Client.create' (formulate_url t.endpoint) with
-        | Ok _ as result -> return (`Finished result)
-        | Error connection_error ->
-          (match Attempt.try_ attempt with
-           | Ok () ->
-             [%log.error
-               [%here]
-                 [%string "Connection failed, retrying in %{retry_after#Time_ns.Span}..."]
-                 (attempt : Attempt.t)
-                 (connection_error : Error.t)];
-             let%map () = Time_source.after t.time_source retry_after in
-             `Repeat ()
-           | Error attempt_arror ->
-             return
-               (`Finished (Error (Error.of_list [ attempt_arror; connection_error ])))))
+      Websocket_connector.connect ~time_source:t.time_source (formulate_url t.endpoint)
     in
     [%log.info [%here] "Connected" ~guild_id:(t.guild_id : Model.Guild_id.t)];
     [%log.debug [%here] (response : Cohttp.Response.t)];
