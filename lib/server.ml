@@ -19,6 +19,7 @@ module State = struct
     ; idle_songs : Song.t Nonempty_list.t
     ; ffmpeg_path : File_path.Absolute.t
     ; yt_dlp_path : File_path.Absolute.t
+    ; leave_timer_cancellation_tokens : unit Ivar.t Guild_id.Table.t
     }
 
   let create ~auth_token ~idle_songs ~ffmpeg_path ~yt_dlp_path () =
@@ -27,12 +28,20 @@ module State = struct
     ; idle_songs
     ; ffmpeg_path
     ; yt_dlp_path
+    ; leave_timer_cancellation_tokens = Guild_id.Table.create ()
     }
   ;;
 
   let player t ~guild_id = Hashtbl.find t.players guild_id
 
+  let cancel_leave_timer t ~guild_id =
+    match Hashtbl.find_and_remove t.leave_timer_cancellation_tokens guild_id with
+    | Some cancellation_token -> Ivar.fill_if_empty cancellation_token ()
+    | None -> ()
+  ;;
+
   let close_player t ~guild_id =
+    cancel_leave_timer t ~guild_id;
     player t ~guild_id |> Option.iter ~f:Player.close;
     Hashtbl.remove t.players guild_id
   ;;
@@ -143,9 +152,7 @@ let handle_stop ~state ~gateway ~agent ~guild_id how_to_respond =
 ;;
 
 let handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond =
-  match%bind
-    join_user_voice ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
-  with
+  match%bind join_user_voice ~state ~gateway ~agent ~guild_id ~user_id how_to_respond with
   | None -> return ()
   | Some player ->
     let%map () = respond ~emoji_end:Yum agent how_to_respond "Started" in
@@ -185,8 +192,64 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
                [%string "Queued %{List.length songs#Int} songs"])))
 ;;
 
+let handle_voice_state_update ~state ~gateway ~guild_id =
+  match State.player state ~guild_id with
+  | None -> ()
+  | Some player ->
+    let channel_id = Player.voice_channel player in
+    let other_users =
+      Discord.Gateway.other_users_in_voice_channel gateway ~guild_id ~channel_id
+    in
+    (match other_users with
+     | _ :: _ ->
+       if Hashtbl.mem state.leave_timer_cancellation_tokens guild_id
+       then (
+         [%log.info
+           [%here] "Other users joined, cancelling leave timer" (guild_id : Guild_id.t)];
+         State.cancel_leave_timer state ~guild_id)
+     | [] ->
+       if Hashtbl.mem state.leave_timer_cancellation_tokens guild_id
+       then ()
+       else (
+         let leave_after = Time_ns.Span.of_int_sec 30 in
+         [%log.info
+           [%here]
+             "Channel empty, scheduling leave"
+             (guild_id : Guild_id.t)
+             (leave_after : Time_ns.Span.t)];
+         let cancellation_token = Ivar.create () in
+         Hashtbl.set
+           state.leave_timer_cancellation_tokens
+           ~key:guild_id
+           ~data:cancellation_token;
+         don't_wait_for
+           (let%bind result =
+              Deferred.any
+                [ (let%map () = Clock_ns.after leave_after in
+                   `Leave)
+                ; (let%map () = Ivar.read cancellation_token in
+                   `Cancelled)
+                ]
+            in
+            match result with
+            | `Cancelled ->
+              [%log.info [%here] "Leave timer cancelled" (guild_id : Guild_id.t)];
+              return ()
+            | `Leave ->
+              [%log.info [%here] "Leaving empty voice channel" (guild_id : Guild_id.t)];
+              let agent = Agent.create ~auth_token:state.auth_token ~channel_id in
+              let%bind () =
+                Agent.send_message ~emoji:Wave agent "Leaving empty voice channel"
+              in
+              State.close_player state ~guild_id;
+              Discord.Gateway.leave_voice gateway ~guild_id)))
+;;
+
 let handle_events ~state ~gateway event =
   match (event : Discord.Gateway.Event.t) with
+  | Voice_state_update { guild_id } ->
+    handle_voice_state_update ~state ~gateway ~guild_id;
+    return ()
   | Voice_connected { guild_id = _ } -> return ()
   | Voice { guild_id; event = Voice_ready { channel_id; frames_writer } } ->
     State.set_player

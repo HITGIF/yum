@@ -18,6 +18,7 @@ module Event : sig
         { guild_id : Model.Guild_id.t
         ; event : Voice_gateway.Event.t
         }
+    | Voice_state_update of { guild_id : Model.Guild_id.t }
 end
 
 type t
@@ -47,3 +48,9 @@ val join_user_voice
 
 val leave_voice : t -> guild_id:Model.Guild_id.t -> unit Deferred.t
 val reconnect_voice : t -> guild_id:Model.Guild_id.t -> unit Deferred.t
+
+val other_users_in_voice_channel
+  :  t
+  -> guild_id:Model.Guild_id.t
+  -> channel_id:Model.Channel_id.t
+  -> Model.User_id.t list

@@ -13,6 +13,7 @@ module Emoji : sig
     | Fast_forward
     | Repeat
     | Stop_button
+    | Wave
 
   val to_name : t -> string
   val to_unicode : t -> string

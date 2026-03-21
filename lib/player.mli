@@ -15,6 +15,7 @@ val create
 
 val close : t -> unit
 val set_agent : t -> Agent.t -> unit
+val voice_channel : t -> Discord.Model.Channel_id.t
 val set_voice_channel : t -> Discord.Model.Channel_id.t -> unit
 val set_frames_writer : t -> Audio.Pcm_frame.t Queue.t Pipe.Writer.t option -> unit
 

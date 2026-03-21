@@ -26,6 +26,7 @@ module Event = struct
         { guild_id : Model.Guild_id.t
         ; event : Voice_gateway.Event.t
         }
+    | Voice_state_update of { guild_id : Model.Guild_id.t }
 end
 
 module State = struct
@@ -530,7 +531,9 @@ and handle_voice_state_update
        |> Hashtbl.set ~key:user_id ~data:{ channel_id; session_id };
        if [%equal: Model.User_id.t] user_id my_user_id
        then update_voice_gateway t ~guild_id ~force_reconnect:(Some `Voice_state_update)
-       else return ()
+       else (
+         emit t (Voice_state_update { guild_id });
+         return ())
      | None ->
        [%log.error
          [%here]
@@ -732,6 +735,23 @@ and restart t =
 
 let reconnect_voice t ~guild_id =
   update_voice_gateway t ~guild_id ~force_reconnect:(Some `Requested_by_client)
+;;
+
+let other_users_in_voice_channel t ~guild_id ~channel_id =
+  match t.state with
+  | Connected { state = Ready { voice_states; user = { id = my_user_id; _ }; _ }; _ } ->
+    (match Hashtbl.find voice_states guild_id with
+     | None -> []
+     | Some guild_voice_states ->
+       Hashtbl.fold
+         guild_voice_states
+         ~init:[]
+         ~f:(fun ~key:user_id ~data:voice_state acc ->
+           if [%equal: Model.Channel_id.t option] voice_state.channel_id (Some channel_id)
+              && not ([%equal: Model.User_id.t] user_id my_user_id)
+           then user_id :: acc
+           else acc))
+  | _ -> []
 ;;
 
 let with_ ?time_source ~initial_gateway_url ~auth_token ~intents ~properties f =

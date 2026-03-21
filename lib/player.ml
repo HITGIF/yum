@@ -51,6 +51,7 @@ type t =
   }
 
 let playing t = t.playing
+let voice_channel t = t.voice_channel
 let next_song t = Songs.peak t.songs
 
 let close
@@ -196,7 +197,6 @@ let play ~cancellation_token ({ guild_id; yt_dlp_path; ffmpeg_path; _ } as t) so
 ;;
 
 let rec play_loop ({ guild_id; _ } as t) =
-  Todo.pause_when_channel_empty;
   match Set_once.is_some t.closed with
   | true ->
     [%log.debug [%here] "Player closed" (guild_id : Guild_id.t)];

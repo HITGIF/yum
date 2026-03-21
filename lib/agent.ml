@@ -15,6 +15,7 @@ module Emoji = struct
     | Fast_forward
     | Repeat
     | Stop_button
+    | Wave
   [@@deriving sexp_of, to_string ~capitalize:"snake_case"]
 
   let to_name = to_string
@@ -31,6 +32,7 @@ module Emoji = struct
     | Fast_forward -> "⏩"
     | Repeat -> "🔁"
     | Stop_button -> "⏹️"
+    | Wave -> "👋"
   ;;
 end
 
