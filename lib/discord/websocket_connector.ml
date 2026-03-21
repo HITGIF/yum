@@ -7,8 +7,9 @@ let connect ?(time_source = Time_source.wall_clock ()) uri =
   let retry_after = Time_ns.Span.of_int_sec 5 in
   Deferred.repeat_until_finished () (fun () ->
     match%bind
-      Deferred.Or_error.try_with_join (fun () ->
+      Deferred.Or_error.try_with ~rest:`Log ~extract_exn:true (fun () ->
         Cohttp_async_websocket.Client.create' uri)
+      >>| Or_error.join
     with
     | Ok _ as result -> return (`Finished result)
     | Error connection_error ->
