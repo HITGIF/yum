@@ -159,11 +159,10 @@ let handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond =
     Player.start_once player
 ;;
 
-let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
-  let how_to_respond = `Send_message in
+let handle_command ~state ~gateway ~agent ~guild_id ~user_id how_to_respond command =
   match (command : Yum_command.t) with
-  | Help -> Agent.send_message agent Yum_command.help_text
-  | Ping -> Agent.send_message agent ~emoji:Yum ""
+  | Help -> respond agent how_to_respond Yum_command.help_text
+  | Ping -> respond ~emoji:Yum agent how_to_respond ""
   | Start -> handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
   | Stop -> handle_stop ~state ~gateway ~agent ~guild_id how_to_respond
   | Skip -> handle_skip ~state ~guild_id ~agent how_to_respond
@@ -186,9 +185,10 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
            | Some player ->
              Player.queue_all player songs;
              Player.start_once player |> ignore;
-             Agent.send_message
+             respond
                ~emoji_end:Arrow_double_up
                agent
+               how_to_respond
                [%string "Queued %{List.length songs#Int} songs"])))
 ;;
 
@@ -245,8 +245,73 @@ let handle_voice_state_update ~state ~gateway ~guild_id =
               Discord.Gateway.leave_voice gateway ~guild_id)))
 ;;
 
-let handle_events ~state ~gateway event =
+let slash_commands : Discord.Model.Slash_command.t list =
+  let open Discord.Model.Slash_command in
+  let no_options ~name ~description = { name; type_ = 1; description; options = [] } in
+  let with_url_option ~url_description ~name ~description =
+    { name
+    ; type_ = 1
+    ; description
+    ; options =
+        [ { Option.type_ = 3
+          ; name = "url"
+          ; description = url_description
+          ; required = true
+          }
+        ]
+    }
+  in
+  [ no_options ~name:"start" ~description:"Start shuffling songs"
+  ; no_options ~name:"stop" ~description:"Stop playing all songs"
+  ; no_options ~name:"skip" ~description:"Skip the current song"
+  ; no_options ~name:"ping" ~description:"Ping yum for a pong"
+  ; no_options ~name:"help" ~description:"Print help text"
+  ; with_url_option
+      ~url_description:"Video URL"
+      ~name:"play"
+      ~description:"Queue a song to play next"
+  ; with_url_option
+      ~url_description:"Video URL"
+      ~name:"play-now"
+      ~description:"Play a song immediately, skipping the current"
+  ; with_url_option
+      ~url_description:"Playlist URL"
+      ~name:"playlist"
+      ~description:"Queue all songs in a playlist"
+  ]
+;;
+
+let register_slash_commands ~auth_token ~application_id =
+  let%map response =
+    Agent.register_slash_commands ~auth_token ~application_id slash_commands
+  in
+  [%log.info
+    [%here]
+      "Registered slash commands"
+      ~status:(response.status_code : Cohttp.Code.status_code)]
+;;
+
+let parse_slash_command ~name ~options : Yum_command.t Or_error.t =
+  let url () =
+    (* CR: we should not raise here, handle malformed commands gracefully and return the error. we do the same thing for text commands too. *)
+    List.Assoc.find_exn options ~equal:String.equal "url"
+  in
+  match name with
+  | "start" -> Ok Start
+  | "stop" -> Ok Stop
+  | "skip" -> Ok Skip
+  | "ping" -> Ok Ping
+  | "help" -> Ok Help
+  | "play" -> Song.of_url (url ()) |> Or_error.map ~f:Yum_command.play
+  | "play-now" -> Song.of_url (url ()) |> Or_error.map ~f:Yum_command.play_now
+  | "playlist" -> Song.Playlist.of_url (url ()) |> Or_error.map ~f:Yum_command.play_list
+  | _ -> Or_error.error_string [%string "Unknown slash command: %{name}"]
+;;
+
+let handle_events ~(state : State.t) ~gateway event =
   match (event : Discord.Gateway.Event.t) with
+  | Ready { application_id } ->
+    register_slash_commands ~auth_token:state.auth_token ~application_id
   | Voice_state_update { guild_id } ->
     handle_voice_state_update ~state ~gateway ~guild_id;
     return ()
@@ -279,6 +344,23 @@ let handle_events ~state ~gateway event =
      | Play_now song ->
        handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
      | Unknown _ -> return ())
+  | Slash_command
+      { id = interaction_id
+      ; token = interaction_token
+      ; guild_id
+      ; channel_id
+      ; user = { id = user_id; _ }
+      ; name
+      ; options
+      } ->
+    let agent = Agent.create ~auth_token:state.auth_token ~channel_id in
+    (* CR: double check the API, is this correct? *)
+    let how_to_respond = `Respond_interaction (~interaction_id, ~interaction_token) in
+    (match parse_slash_command ~name ~options with
+     | Ok command ->
+       handle_command ~state ~gateway ~agent ~guild_id ~user_id how_to_respond command
+     | Error error ->
+       respond ~emoji_end:Pleading_face agent how_to_respond (Error.to_string_hum error))
   | Message
       { id = message_id
       ; guild_id
@@ -301,7 +383,7 @@ let handle_events ~state ~gateway event =
        (match Yum_command.parse content with
         | Ok None -> return ()
         | Ok (Some command) ->
-          handle_command ~state ~gateway ~agent ~guild_id ~user_id command
+          handle_command ~state ~gateway ~agent ~guild_id ~user_id `Send_message command
         | Error error ->
           let error = Error.to_string_hum error in
           Agent.send_message ~emoji_end:Pleading_face agent error))

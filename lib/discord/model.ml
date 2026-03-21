@@ -97,6 +97,26 @@ module Interaction_token =
     end)
     ()
 
+module Slash_command = struct
+  module Option = struct
+    type t =
+      { type_ : int [@key "type"]
+      ; name : string
+      ; description : string
+      ; required : bool
+      }
+    [@@deriving sexp_of, yojson_of]
+  end
+
+  type t =
+    { name : string
+    ; type_ : int [@key "type"]
+    ; description : string
+    ; options : Option.t list
+    }
+  [@@deriving sexp_of, yojson_of]
+end
+
 module Uri = struct
   include Uri
 
@@ -360,22 +380,15 @@ module Gateway = struct
           type t = { user : User.t } [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
         end
 
-        module Data = struct
-          type t =
-            { custom_id : string
-            ; component_type : int
-            }
-          [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
-        end
-
         type t =
           { id : Interaction_id.t
           ; token : Interaction_token.t
+          ; type_ : int [@key "type"]
           ; guild_id : Guild_id.t
           ; channel_id : Channel_id.t
           ; application_id : User_id.t
           ; member : Member.t
-          ; data : Data.t
+          ; data : Json.t
           }
         [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
       end

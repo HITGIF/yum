@@ -14,6 +14,28 @@ module Voice_connection_token : String_id.S
 module Interaction_id : String_id.S
 module Interaction_token : String_id.S
 
+module Slash_command : sig
+  module Option : sig
+    type t =
+      { type_ : int
+          (* CR: what's the semantics of type_ here, it is worth making it a variant here? *)
+      ; name : string
+      ; description : string
+      ; required : bool
+      }
+    [@@deriving sexp_of, yojson_of]
+  end
+
+  type t =
+    { name : string
+    ; type_ : int
+        (* CR: what's the semantics of type_ here, it is worth making it a variant here? *)
+    ; description : string
+    ; options : Option.t list
+    }
+  [@@deriving sexp_of, yojson_of]
+end
+
 module Uri : sig
   include module type of Uri
 
@@ -195,22 +217,17 @@ module Gateway : sig
           type t = { user : User.t } [@@deriving sexp_of]
         end
 
-        module Data : sig
-          type t =
-            { custom_id : string
-            ; component_type : int
-            }
-          [@@deriving sexp_of]
-        end
-
         type t =
           { id : Interaction_id.t
           ; token : Interaction_token.t
+          ; type_ : int
+              (* CR: can we type it better? i.e. have a Interaction_type.t variant that hides away the wire repr *)
           ; guild_id : Guild_id.t
           ; channel_id : Channel_id.t
           ; application_id : User_id.t
           ; member : Member.t
-          ; data : Data.t
+          ; data : Json.t
+          (* CR: we can assume it's a key value pair string assoc list here, and raise if it's not *)
           }
         [@@deriving sexp_of]
       end

@@ -106,3 +106,12 @@ module Respond_interaction : sig
     -> Request.t
     -> Json.t Response.t Deferred.t
 end
+
+module Bulk_overwrite_commands : sig
+  val call
+    :  auth_token:Model.Auth_token.t
+    -> user_agent:string
+    -> application_id:Model.User_id.t
+    -> Model.Slash_command.t list
+    -> Json.t Response.t Deferred.t
+end

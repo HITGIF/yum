@@ -11,6 +11,7 @@ end
 
 module Event = struct
   type t =
+    | Ready of { application_id : Model.User_id.t }
     | Message of Model.Message.t
     | Interaction of
         { id : Model.Interaction_id.t
@@ -20,6 +21,15 @@ module Event = struct
         ; user : Model.User.t
         ; custom_id : string
         ; component_type : int
+        }
+    | Slash_command of
+        { id : Model.Interaction_id.t
+        ; token : Model.Interaction_token.t
+        ; guild_id : Model.Guild_id.t
+        ; channel_id : Model.Channel_id.t
+        ; user : Model.User.t
+        ; name : string
+        ; options : (string * string) list
         }
     | Voice_connected of { guild_id : Model.Guild_id.t }
     | Voice of
@@ -227,7 +237,8 @@ let handle_ready
          ; voice_reincarnation_attempts = Model.Guild_id.Table.create ()
          };
     Ivar.fill_if_empty ready ();
-    [%log.info [%here] "Ready" (session_id : Model.Gateway_session_id.t)]
+    [%log.info [%here] "Ready" (session_id : Model.Gateway_session_id.t)];
+    emit t (Ready { application_id = user.id })
   | state -> [%log.error [%here] "Ignoring [Ready] in unexpected state" (state : State.t)]
 ;;
 
@@ -562,20 +573,53 @@ and handle_interaction_create
   t
   { Model.Gateway.Event.Dispatch.Interaction_create.id
   ; token
+  ; type_
   ; guild_id
   ; channel_id
   ; application_id
   ; member = { user }
-  ; data = { custom_id; component_type }
+  ; data
   }
   =
   match t.state with
   | Connected { state = Ready { user = { id = self_user_id; _ }; _ }; _ } ->
     if [%equal: Model.User_id.t] application_id self_user_id
-    then
-      emit
-        t
-        (Interaction { id; token; guild_id; channel_id; user; custom_id; component_type })
+    then (
+      match type_ with
+      | 2 ->
+        let name = Yojson.Safe.Util.member "name" data |> Yojson.Safe.Util.to_string in
+        let options =
+          match Yojson.Safe.Util.member "options" data with
+          | `Null -> []
+          | options_json ->
+            Yojson.Safe.Util.to_list options_json
+            |> List.map ~f:(fun option ->
+              let name =
+                Yojson.Safe.Util.member "name" option |> Yojson.Safe.Util.to_string
+              in
+              let value =
+                Yojson.Safe.Util.member "value" option |> Yojson.Safe.Util.to_string
+              in
+              name, value)
+        in
+        emit t (Slash_command { id; token; guild_id; channel_id; user; name; options })
+      | 3 ->
+        let custom_id =
+          Yojson.Safe.Util.member "custom_id" data |> Yojson.Safe.Util.to_string
+        in
+        let component_type =
+          Yojson.Safe.Util.member "component_type" data |> Yojson.Safe.Util.to_int
+        in
+        emit
+          t
+          (Interaction
+             { id; token; guild_id; channel_id; user; custom_id; component_type })
+      | _ ->
+        [%log.debug
+          [%here]
+            "Ignoring interaction with unsupported type"
+            (type_ : int)
+            (data : Common.Json.t)])
   | state ->
     [%log.error
       [%here] "Ignoring [Interaction_create] in unexpected state" (state : State.t)]

@@ -3,6 +3,7 @@ open! Async
 
 module Event : sig
   type t =
+    | Ready of { application_id : Model.User_id.t }
     | Message of Model.Message.t
     | Interaction of
         { id : Model.Interaction_id.t
@@ -12,6 +13,15 @@ module Event : sig
         ; user : Model.User.t
         ; custom_id : string
         ; component_type : int
+        }
+    | Slash_command of
+        { id : Model.Interaction_id.t
+        ; token : Model.Interaction_token.t
+        ; guild_id : Model.Guild_id.t
+        ; channel_id : Model.Channel_id.t
+        ; user : Model.User.t
+        ; name : string
+        ; options : (string * string) list
         }
     | Voice_connected of { guild_id : Model.Guild_id.t }
     | Voice of
