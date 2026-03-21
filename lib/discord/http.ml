@@ -237,6 +237,18 @@ module Respond_interaction = struct
   ;;
 end
 
+module Bulk_overwrite_commands = struct
+  let call ~auth_token ~user_agent ~application_id commands =
+    call
+      (module Json)
+      `PUT
+      ~body:([%yojson_of: Model.Slash_command.t list] commands)
+      ~auth_token
+      ~user_agent
+      [ "applications"; Model.User_id.to_string application_id; "commands" ]
+  ;;
+end
+
 module%test _ = struct
   let%expect_test "headers" =
     print_s

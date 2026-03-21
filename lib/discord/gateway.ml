@@ -11,6 +11,7 @@ end
 
 module Event = struct
   type t =
+    | Ready of { application_id : Model.User_id.t }
     | Message of Model.Message.t
     | Interaction of
         { id : Model.Interaction_id.t
@@ -20,6 +21,16 @@ module Event = struct
         ; user : Model.User.t
         ; custom_id : string
         ; component_type : int
+        }
+    | Slash_command of
+        { id : Model.Interaction_id.t
+        ; token : Model.Interaction_token.t
+        ; guild_id : Model.Guild_id.t
+        ; channel_id : Model.Channel_id.t
+        ; user : Model.User.t
+        ; name : string
+        ; options :
+            Model.Gateway.Event.Dispatch.Interaction_create.Slash_command_option.t list
         }
     | Voice_connected of { guild_id : Model.Guild_id.t }
     | Voice of
@@ -227,7 +238,8 @@ let handle_ready
          ; voice_reincarnation_attempts = Model.Guild_id.Table.create ()
          };
     Ivar.fill_if_empty ready ();
-    [%log.info [%here] "Ready" (session_id : Model.Gateway_session_id.t)]
+    [%log.info [%here] "Ready" (session_id : Model.Gateway_session_id.t)];
+    emit t (Ready { application_id = user.id })
   | state -> [%log.error [%here] "Ignoring [Ready] in unexpected state" (state : State.t)]
 ;;
 
@@ -566,16 +578,21 @@ and handle_interaction_create
   ; channel_id
   ; application_id
   ; member = { user }
-  ; data = { custom_id; component_type }
+  ; data
   }
   =
   match t.state with
   | Connected { state = Ready { user = { id = self_user_id; _ }; _ }; _ } ->
     if [%equal: Model.User_id.t] application_id self_user_id
-    then
-      emit
-        t
-        (Interaction { id; token; guild_id; channel_id; user; custom_id; component_type })
+    then (
+      match data with
+      | Application_command { name; options } ->
+        emit t (Slash_command { id; token; guild_id; channel_id; user; name; options })
+      | Message_component { custom_id; component_type } ->
+        emit t (Interaction { id; token; guild_id; channel_id; user; custom_id; component_type })
+      | Unknown data ->
+        [%log.debug
+          [%here] "Ignoring interaction with unsupported type" (data : Common.Json.t)])
   | state ->
     [%log.error
       [%here] "Ignoring [Interaction_create] in unexpected state" (state : State.t)]
@@ -603,8 +620,8 @@ and handle_event t (event : Model.Gateway.Event.Receivable.t) =
   | Dispatch (Message_create message) ->
     emit t (Message message);
     return ()
-  | Dispatch (Interaction_create interation_create) ->
-    handle_interaction_create t interation_create;
+  | Dispatch (Interaction_create interaction_create) ->
+    handle_interaction_create t interaction_create;
     return ()
   | Heartbeat_ack ->
     handle_heartbeat_ack t;

@@ -172,3 +172,12 @@ let respond_interaction ?emoji ?emoji_end t id token message =
     }
   |> Deferred.ignore_m
 ;;
+
+let register_slash_commands ~auth_token ~application_id commands =
+  Discord.Http.Bulk_overwrite_commands.call
+    ~auth_token
+    ~user_agent
+    ~application_id
+    commands
+  |> Deferred.ignore_m
+;;

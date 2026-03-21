@@ -14,6 +14,50 @@ module Voice_connection_token : String_id.S
 module Interaction_id : String_id.S
 module Interaction_token : String_id.S
 
+module Slash_command : sig
+  module Option : sig
+    module Type : sig
+      type t =
+        | Sub_command
+        | Sub_command_group
+        | String
+        | Integer
+        | Boolean
+        | User
+        | Channel
+        | Role
+        | Mentionable
+        | Number
+        | Attachment
+      [@@deriving sexp_of]
+    end
+
+    type t =
+      { type_ : Type.t
+      ; name : string
+      ; description : string
+      ; required : bool
+      }
+    [@@deriving sexp_of, yojson_of]
+  end
+
+  module Type : sig
+    type t =
+      | Chat_input
+      | User
+      | Message
+    [@@deriving sexp_of]
+  end
+
+  type t =
+    { name : string
+    ; type_ : Type.t
+    ; description : string
+    ; options : Option.t list
+    }
+  [@@deriving sexp_of, yojson_of]
+end
+
 module Uri : sig
   include module type of Uri
 
@@ -195,11 +239,35 @@ module Gateway : sig
           type t = { user : User.t } [@@deriving sexp_of]
         end
 
-        module Data : sig
+        module Slash_command_option : sig
+          type t =
+            { name : string
+            ; value : string
+            }
+          [@@deriving sexp_of]
+        end
+
+        module Application_command : sig
+          type t =
+            { name : string
+            ; options : Slash_command_option.t list
+            }
+          [@@deriving sexp_of]
+        end
+
+        module Message_component : sig
           type t =
             { custom_id : string
             ; component_type : int
             }
+          [@@deriving sexp_of]
+        end
+
+        module Data : sig
+          type t =
+            | Application_command of Application_command.t
+            | Message_component of Message_component.t
+            | Unknown of Json.t
           [@@deriving sexp_of]
         end
 

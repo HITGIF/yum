@@ -159,11 +159,10 @@ let handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond =
     Player.start_once player
 ;;
 
-let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
-  let how_to_respond = `Send_message in
+let handle_command ~state ~gateway ~agent ~guild_id ~user_id how_to_respond command =
   match (command : Yum_command.t) with
-  | Help -> Agent.send_message agent Yum_command.help_text
-  | Ping -> Agent.send_message agent ~emoji:Yum ""
+  | Help -> respond agent how_to_respond Yum_command.Text_command.help_text
+  | Ping -> respond ~emoji:Yum agent how_to_respond ""
   | Start -> handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
   | Stop -> handle_stop ~state ~gateway ~agent ~guild_id how_to_respond
   | Skip -> handle_skip ~state ~guild_id ~agent how_to_respond
@@ -186,9 +185,10 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
            | Some player ->
              Player.queue_all player songs;
              Player.start_once player |> ignore;
-             Agent.send_message
+             respond
                ~emoji_end:Arrow_double_up
                agent
+               how_to_respond
                [%string "Queued %{List.length songs#Int} songs"])))
 ;;
 
@@ -245,8 +245,13 @@ let handle_voice_state_update ~state ~gateway ~guild_id =
               Discord.Gateway.leave_voice gateway ~guild_id)))
 ;;
 
-let handle_events ~state ~gateway event =
+let handle_events ~(state : State.t) ~gateway event =
   match (event : Discord.Gateway.Event.t) with
+  | Ready { application_id } ->
+    Agent.register_slash_commands
+      ~auth_token:state.auth_token
+      ~application_id
+      Yum_command.Slash_command.all
   | Voice_state_update { guild_id } ->
     handle_voice_state_update ~state ~gateway ~guild_id;
     return ()
@@ -279,6 +284,22 @@ let handle_events ~state ~gateway event =
      | Play_now song ->
        handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
      | Unknown _ -> return ())
+  | Slash_command
+      { id = interaction_id
+      ; token = interaction_token
+      ; guild_id
+      ; channel_id
+      ; user = { id = user_id; _ }
+      ; name
+      ; options
+      } ->
+    let agent = Agent.create ~auth_token:state.auth_token ~channel_id in
+    let how_to_respond = `Respond_interaction (~interaction_id, ~interaction_token) in
+    (match Yum_command.Slash_command.parse ~name ~options with
+     | Ok command ->
+       handle_command ~state ~gateway ~agent ~guild_id ~user_id how_to_respond command
+     | Error error ->
+       respond ~emoji:Pleading_face agent how_to_respond (Error.to_string_hum error))
   | Message
       { id = message_id
       ; guild_id
@@ -298,13 +319,13 @@ let handle_events ~state ~gateway event =
        let agent =
          Agent.create ~auth_token:state.auth_token ~channel_id:message_channel
        in
-       (match Yum_command.parse content with
+       (match Yum_command.Text_command.parse content with
         | Ok None -> return ()
         | Ok (Some command) ->
-          handle_command ~state ~gateway ~agent ~guild_id ~user_id command
+          handle_command ~state ~gateway ~agent ~guild_id ~user_id `Send_message command
         | Error error ->
           let error = Error.to_string_hum error in
-          Agent.send_message ~emoji_end:Pleading_face agent error))
+          Agent.send_message ~emoji:Pleading_face agent error))
 ;;
 
 let read_youtube_songs filename =
