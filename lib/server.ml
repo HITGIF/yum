@@ -136,22 +136,29 @@ let handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respo
     Player.start_once player |> ignore
 ;;
 
+let handle_stop ~state ~gateway ~agent ~guild_id how_to_respond =
+  let%bind () = respond ~emoji_end:Stop_button agent how_to_respond "Stopped" in
+  State.close_player state ~guild_id;
+  Discord.Gateway.leave_voice gateway ~guild_id
+;;
+
+let handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond =
+  match%bind
+    join_user_voice ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
+  with
+  | None -> return ()
+  | Some player ->
+    let%map () = respond ~emoji_end:Yum agent how_to_respond "Started" in
+    Player.start_once player
+;;
+
 let handle_command ~state ~gateway ~agent ~guild_id ~user_id command =
   let how_to_respond = `Send_message in
   match (command : Yum_command.t) with
   | Help -> Agent.send_message agent Yum_command.help_text
   | Ping -> Agent.send_message agent ~emoji:Yum ""
-  | Start ->
-    (match%bind
-       join_user_voice ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
-     with
-     | None -> return ()
-     | Some player ->
-       let%map () = Agent.send_message ~emoji_end:Yum agent "Started" in
-       Player.start_once player)
-  | Stop ->
-    State.close_player state ~guild_id;
-    Discord.Gateway.leave_voice gateway ~guild_id
+  | Start -> handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
+  | Stop -> handle_stop ~state ~gateway ~agent ~guild_id how_to_respond
   | Skip -> handle_skip ~state ~guild_id ~agent how_to_respond
   | Play song ->
     handle_play ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
@@ -202,6 +209,8 @@ let handle_events ~state ~gateway event =
     let how_to_respond = `Respond_interaction (~interaction_id, ~interaction_token) in
     (match Agent.Action.of_custom_id custom_id with
      | Skip -> handle_skip ~state ~guild_id ~agent how_to_respond
+     | Stop -> handle_stop ~state ~gateway ~agent ~guild_id how_to_respond
+     | Start -> handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
      | Play song ->
        handle_play ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
      | Play_now song ->

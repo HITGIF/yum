@@ -13,6 +13,7 @@ module Emoji = struct
     | Arrow_double_up
     | Fast_forward
     | Repeat
+    | Stop_button
   [@@deriving sexp_of, to_string ~capitalize:"snake_case"]
 
   let to_string t = [%string ":%{to_string t}:"]
@@ -21,6 +22,8 @@ end
 module Action = struct
   type t =
     | Skip
+    | Stop
+    | Start
     | Play of Song.t
     | Play_now of Song.t
     | Unknown of string

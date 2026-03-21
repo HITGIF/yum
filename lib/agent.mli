@@ -11,11 +11,14 @@ module Emoji : sig
     | Arrow_double_up
     | Fast_forward
     | Repeat
+    | Stop_button
 end
 
 module Action : sig
   type t =
     | Skip
+    | Stop
+    | Start
     | Play of Song.t
     | Play_now of Song.t
     | Unknown of string

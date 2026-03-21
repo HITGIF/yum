@@ -209,7 +209,9 @@ let rec play_loop ({ guild_id; _ } as t) =
     let%bind () =
       Agent.send_message'
         ~buttons:
-          [ { style = Danger; action = Skip; label = Some "Skip" }
+          [ { style = Secondary; action = Skip; label = Some "Skip" }
+          ; { style = Danger; action = Stop; label = Some "Stop" }
+          ; { style = Primary; action = Start; label = Some "Start" }
           ; { style = Primary; action = Play song; label = Some "Play" }
           ; { style = Success; action = Play_now song; label = Some "Play!" }
           ]
