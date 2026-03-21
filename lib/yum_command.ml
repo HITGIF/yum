@@ -252,7 +252,7 @@ module%test _ = struct
       [ ping ]                           : ping yum for a pong
       [ help | h ]                       : print help text
       ```
-      > Supported `<url>` formats:
+      > Supported `<video-url>` formats:
       > - `[...]https://www.youtube.com/watch?v=<id>[...]`
       > - `[...]https://youtu.be/<id>[...]`
       > - `[...]https://music.youtube.com/watch?v=<id>[...]`

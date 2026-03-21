@@ -172,7 +172,7 @@ type t =
 [@@deriving variants, sexp]
 
 let supported_url_formats_msg =
-  [ "> Supported `<url>` formats:" ]
+  [ "> Supported `<video-url>` formats:" ]
   @ (Youtube.supported_url_formats @ Bilibili.supported_url_formats
      |> List.map ~f:(fun x -> [%string "> - `%{x}`"]))
   |> String.concat ~sep:"\n"
@@ -386,7 +386,7 @@ module%test _ = struct
       (Error
         "URL format is not supported.\
        \n\
-       \n> Supported `<url>` formats:\
+       \n> Supported `<video-url>` formats:\
        \n> - `[...]https://www.youtube.com/watch?v=<id>[...]`\
        \n> - `[...]https://youtu.be/<id>[...]`\
        \n> - `[...]https://music.youtube.com/watch?v=<id>[...]`\
@@ -395,7 +395,7 @@ module%test _ = struct
       (Error
         "URL format is not supported.\
        \n\
-       \n> Supported `<url>` formats:\
+       \n> Supported `<video-url>` formats:\
        \n> - `[...]https://www.youtube.com/watch?v=<id>[...]`\
        \n> - `[...]https://youtu.be/<id>[...]`\
        \n> - `[...]https://music.youtube.com/watch?v=<id>[...]`\
@@ -404,7 +404,7 @@ module%test _ = struct
       (Error
         "URL format is not supported.\
        \n\
-       \n> Supported `<url>` formats:\
+       \n> Supported `<video-url>` formats:\
        \n> - `[...]https://www.youtube.com/watch?v=<id>[...]`\
        \n> - `[...]https://youtu.be/<id>[...]`\
        \n> - `[...]https://music.youtube.com/watch?v=<id>[...]`\
