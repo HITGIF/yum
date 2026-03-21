@@ -247,13 +247,15 @@ let handle_voice_state_update ~state ~gateway ~guild_id =
 
 let slash_commands : Discord.Model.Slash_command.t list =
   let open Discord.Model.Slash_command in
-  let no_options ~name ~description = { name; type_ = 1; description; options = [] } in
+  let no_options ~name ~description =
+    { name; type_ = Chat_input; description; options = [] }
+  in
   let with_url_option ~url_description ~name ~description =
     { name
-    ; type_ = 1
+    ; type_ = Chat_input
     ; description
     ; options =
-        [ { Option.type_ = 3
+        [ { Option.type_ = String
           ; name = "url"
           ; description = url_description
           ; required = true
@@ -292,9 +294,11 @@ let register_slash_commands ~auth_token ~application_id =
 ;;
 
 let parse_slash_command ~name ~options : Yum_command.t Or_error.t =
+  let open Or_error.Let_syntax in
   let url () =
-    (* CR: we should not raise here, handle malformed commands gracefully and return the error. we do the same thing for text commands too. *)
-    List.Assoc.find_exn options ~equal:String.equal "url"
+    match List.Assoc.find options ~equal:String.equal "url" with
+    | Some url -> Ok url
+    | None -> Or_error.error_string "Missing required option: url"
   in
   match name with
   | "start" -> Ok Start
@@ -302,9 +306,9 @@ let parse_slash_command ~name ~options : Yum_command.t Or_error.t =
   | "skip" -> Ok Skip
   | "ping" -> Ok Ping
   | "help" -> Ok Help
-  | "play" -> Song.of_url (url ()) |> Or_error.map ~f:Yum_command.play
-  | "play-now" -> Song.of_url (url ()) |> Or_error.map ~f:Yum_command.play_now
-  | "playlist" -> Song.Playlist.of_url (url ()) |> Or_error.map ~f:Yum_command.play_list
+  | "play" -> url () >>= Song.of_url >>| Yum_command.play
+  | "play-now" -> url () >>= Song.of_url >>| Yum_command.play_now
+  | "playlist" -> url () >>= Song.Playlist.of_url >>| Yum_command.play_list
   | _ -> Or_error.error_string [%string "Unknown slash command: %{name}"]
 ;;
 
@@ -354,7 +358,6 @@ let handle_events ~(state : State.t) ~gateway event =
       ; options
       } ->
     let agent = Agent.create ~auth_token:state.auth_token ~channel_id in
-    (* CR: double check the API, is this correct? *)
     let how_to_respond = `Respond_interaction (~interaction_id, ~interaction_token) in
     (match parse_slash_command ~name ~options with
      | Ok command ->

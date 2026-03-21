@@ -99,8 +99,40 @@ module Interaction_token =
 
 module Slash_command = struct
   module Option = struct
+    module Type = struct
+      type t =
+        | Sub_command
+        | Sub_command_group
+        | String
+        | Integer
+        | Boolean
+        | User
+        | Channel
+        | Role
+        | Mentionable
+        | Number
+        | Attachment
+      [@@deriving sexp_of]
+
+      let to_int = function
+        | Sub_command -> 1
+        | Sub_command_group -> 2
+        | String -> 3
+        | Integer -> 4
+        | Boolean -> 5
+        | User -> 6
+        | Channel -> 7
+        | Role -> 8
+        | Mentionable -> 9
+        | Number -> 10
+        | Attachment -> 11
+      ;;
+
+      let yojson_of_t t = t |> to_int |> [%yojson_of: int]
+    end
+
     type t =
-      { type_ : int [@key "type"]
+      { type_ : Type.t [@key "type"]
       ; name : string
       ; description : string
       ; required : bool
@@ -108,9 +140,25 @@ module Slash_command = struct
     [@@deriving sexp_of, yojson_of]
   end
 
+  module Type = struct
+    type t =
+      | Chat_input
+      | User
+      | Message
+    [@@deriving sexp_of]
+
+    let to_int = function
+      | Chat_input -> 1
+      | User -> 2
+      | Message -> 3
+    ;;
+
+    let yojson_of_t t = t |> to_int |> [%yojson_of: int]
+  end
+
   type t =
     { name : string
-    ; type_ : int [@key "type"]
+    ; type_ : Type.t [@key "type"]
     ; description : string
     ; options : Option.t list
     }
@@ -380,15 +428,37 @@ module Gateway = struct
           type t = { user : User.t } [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
         end
 
+        module Type = struct
+          type t =
+            | Application_command
+            | Message_component
+            | Other of int
+          [@@deriving sexp_of]
+
+          let of_int_exn = function
+            | 2 -> Application_command
+            | 3 -> Message_component
+            | n -> Other n
+          ;;
+
+          let to_int_exn = function
+            | Application_command -> 2
+            | Message_component -> 3
+            | Other n -> n
+          ;;
+
+          include functor Yojsonable_of_intable
+        end
+
         type t =
           { id : Interaction_id.t
           ; token : Interaction_token.t
-          ; type_ : int [@key "type"]
+          ; type_ : Type.t [@key "type"]
           ; guild_id : Guild_id.t
           ; channel_id : Channel_id.t
           ; application_id : User_id.t
           ; member : Member.t
-          ; data : Json.t
+          ; data : (string * Json.t) list [@yojson.assoc]
           }
         [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
       end

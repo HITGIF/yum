@@ -16,9 +16,24 @@ module Interaction_token : String_id.S
 
 module Slash_command : sig
   module Option : sig
+    module Type : sig
+      type t =
+        | Sub_command
+        | Sub_command_group
+        | String
+        | Integer
+        | Boolean
+        | User
+        | Channel
+        | Role
+        | Mentionable
+        | Number
+        | Attachment
+      [@@deriving sexp_of]
+    end
+
     type t =
-      { type_ : int
-          (* CR: what's the semantics of type_ here, it is worth making it a variant here? *)
+      { type_ : Type.t
       ; name : string
       ; description : string
       ; required : bool
@@ -26,10 +41,17 @@ module Slash_command : sig
     [@@deriving sexp_of, yojson_of]
   end
 
+  module Type : sig
+    type t =
+      | Chat_input
+      | User
+      | Message
+    [@@deriving sexp_of]
+  end
+
   type t =
     { name : string
-    ; type_ : int
-        (* CR: what's the semantics of type_ here, it is worth making it a variant here? *)
+    ; type_ : Type.t
     ; description : string
     ; options : Option.t list
     }
@@ -217,17 +239,23 @@ module Gateway : sig
           type t = { user : User.t } [@@deriving sexp_of]
         end
 
+        module Type : sig
+          type t =
+            | Application_command
+            | Message_component
+            | Other of int
+          [@@deriving sexp_of]
+        end
+
         type t =
           { id : Interaction_id.t
           ; token : Interaction_token.t
-          ; type_ : int
-              (* CR: can we type it better? i.e. have a Interaction_type.t variant that hides away the wire repr *)
+          ; type_ : Type.t
           ; guild_id : Guild_id.t
           ; channel_id : Channel_id.t
           ; application_id : User_id.t
           ; member : Member.t
-          ; data : Json.t
-          (* CR: we can assume it's a key value pair string assoc list here, and raise if it's not *)
+          ; data : (string * Json.t) list
           }
         [@@deriving sexp_of]
       end
