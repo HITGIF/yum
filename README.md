@@ -48,12 +48,12 @@ sudo docker run --name bgutil-provider -d --init brainicism/bgutil-ytdlp-pot-pro
 ```
 7. Download [yum](https://github.com/HITGIF/yum)
 ```sh
-wget -O https://github.com/HITGIF/yum/releases/latest/download/yum
+wget -O yum https://github.com/HITGIF/yum/releases/latest/download/yum
 chmod +x yum
 ```
 8. Make a playlist file containing a list of YouTube video IDs, e.g. [mine](sync/videos.txt)
 ```sh
-wget -O https://raw.githubusercontent.com/HITGIF/yum/refs/heads/main/sync/videos.txt
+wget -O videos.txt https://raw.githubusercontent.com/HITGIF/yum/refs/heads/main/sync/videos.txt
 ```
 
 ## Run
