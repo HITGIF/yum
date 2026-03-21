@@ -95,71 +95,71 @@ let with_url
 
 let entries : Entry.t list =
   let f entry acc _ = entry :: acc in
-  List.rev
-    (Variants.fold
-       ~init:[]
-       ~ping:
-         (no_options
-            ~slash_name:"ping"
-            ~text_names:[ "ping" ]
-            ~description:"Ping yum for a pong"
-            ~command:Ping
-          |> f)
-       ~start:
-         (no_options
-            ~slash_name:"start"
-            ~text_names:[ "start"; "s" ]
-            ~description:"Start shuffling songs"
-            ~command:Start
-          |> f)
-       ~stop:
-         (no_options
-            ~slash_name:"stop"
-            ~text_names:[ "stop"; "q" ]
-            ~description:"Stop playing all songs"
-            ~command:Stop
-          |> f)
-       ~skip:
-         (no_options
-            ~slash_name:"skip"
-            ~text_names:[ "skip"; "n" ]
-            ~description:"Skip the current song"
-            ~command:Skip
-          |> f)
-       ~help:
-         (no_options
-            ~slash_name:"help"
-            ~text_names:[ "help"; "h" ]
-            ~description:"Print help text"
-            ~command:Help
-          |> f)
-       ~play:
-         (with_url
-            ~slash_name:"play"
-            ~text_names:[ "play"; "p" ]
-            ~description:"Queue a song to play next"
-            ~arg_text_description:"<video-url>"
-            ~arg_slash_description:"Video URL"
-            ~parse:(parse_single_video play)
-          |> f)
-       ~play_now:
-         (with_url
-            ~slash_name:"play-now"
-            ~text_names:[ "play!"; "p!" ]
-            ~description:"Play a song immediately, skipping the current"
-            ~arg_text_description:"<video-url>"
-            ~arg_slash_description:"Video URL"
-            ~parse:(parse_single_video play_now)
-          |> f)
-       ~play_list:
-         (with_url
-            ~slash_name:"playlist"
-            ~text_names:[ "playlist"; "pl" ]
-            ~description:"Queue all songs in a playlist"
-            ~arg_text_description:"<playlist-url>"
-            ~arg_slash_description:"Playlist URL"
-            ~parse:(parse_single_playlist play_list)
-          |> f))
+  Variants.fold
+    ~init:[]
+    ~ping:
+      (no_options
+         ~slash_name:"ping"
+         ~text_names:[ "ping" ]
+         ~description:"Ping yum for a pong"
+         ~command:Ping
+       |> f)
+    ~start:
+      (no_options
+         ~slash_name:"start"
+         ~text_names:[ "start"; "s" ]
+         ~description:"Start shuffling songs"
+         ~command:Start
+       |> f)
+    ~stop:
+      (no_options
+         ~slash_name:"stop"
+         ~text_names:[ "stop"; "q" ]
+         ~description:"Stop playing all songs"
+         ~command:Stop
+       |> f)
+    ~skip:
+      (no_options
+         ~slash_name:"skip"
+         ~text_names:[ "skip"; "n" ]
+         ~description:"Skip the current song"
+         ~command:Skip
+       |> f)
+    ~help:
+      (no_options
+         ~slash_name:"help"
+         ~text_names:[ "help"; "h" ]
+         ~description:"Print help text"
+         ~command:Help
+       |> f)
+    ~play:
+      (with_url
+         ~slash_name:"play"
+         ~text_names:[ "play"; "p" ]
+         ~description:"Queue a song to play next"
+         ~arg_text_description:"<video-url>"
+         ~arg_slash_description:"Video URL"
+         ~parse:(parse_single_video play)
+       |> f)
+    ~play_now:
+      (with_url
+         ~slash_name:"play-now"
+         ~text_names:[ "play!"; "p!" ]
+         ~description:"Play a song immediately, skipping the current"
+         ~arg_text_description:"<video-url>"
+         ~arg_slash_description:"Video URL"
+         ~parse:(parse_single_video play_now)
+       |> f)
+    ~play_list:
+      (with_url
+         ~slash_name:"playlist"
+         ~text_names:[ "playlist"; "pl" ]
+         ~description:"Queue all songs in a playlist"
+         ~arg_text_description:"<playlist-url>"
+         ~arg_slash_description:"Playlist URL"
+         ~parse:(parse_single_playlist play_list)
+       |> f)
+  |> List.rev
 ;;
 
 module Text_command = struct
