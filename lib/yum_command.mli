@@ -1,15 +1,25 @@
 open! Core
 
 type t =
-  | Ping
   | Start
   | Stop
   | Skip
-  | Help
   | Play of Song.t
   | Play_now of Song.t
   | Play_list of Song.Playlist.t
+  | Ping
+  | Help
 [@@deriving variants]
 
-val parse : string -> t option Or_error.t
-val help_text : string
+module Text_command : sig
+  val parse : string -> t option Or_error.t
+  val help_text : string
+end
+
+module Slash_command : sig
+  module Slash_command_option :=
+    Discord.Model.Gateway.Event.Dispatch.Interaction_create.Slash_command_option
+
+  val all : Discord.Model.Slash_command.t list
+  val parse : name:string -> options:Slash_command_option.t list -> t Or_error.t
+end
