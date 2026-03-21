@@ -8,10 +8,14 @@ module Emoji : sig
     | Pleading_face
     | Thinking
     | Arrow_forward
+    | Arrow_up
     | Arrow_double_up
     | Fast_forward
     | Repeat
     | Stop_button
+
+  val to_name : t -> string
+  val to_unicode : t -> string
 end
 
 module Action : sig
@@ -39,6 +43,7 @@ module Button : sig
     { style : Style.t
     ; action : Action.t
     ; label : string option
+    ; emoji : Emoji.t option
     }
 end
 

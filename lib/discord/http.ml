@@ -88,19 +88,28 @@ module Flags = struct
 
   type t = flag list [@@deriving sexp_of]
 
-  let to_int t = List.fold t ~init:0 ~f:(fun acc flag -> acc + flag_to_int flag)
+  let to_int t = List.map t ~f:flag_to_int |> List.sum (module Int) ~f:Fn.id
   let yojson_of_t = Fn.compose [%yojson_of: int] to_int
 end
 
 module Create_message = struct
   module Component = struct
+    module Partial_emoji = struct
+      type t =
+        { name : string
+        ; id : string option [@default None]
+        ; animated : bool option [@default None]
+        }
+      [@@deriving sexp_of, yojson_of]
+    end
+
     type t =
       | Action_row of { components : t list }
       | Button of
           { style : int
           ; custom_id : string
           ; label : string option [@default None]
-          ; emoji : string option [@default None]
+          ; emoji : Partial_emoji.t option [@default None]
           }
       | String_select
       | Text_input

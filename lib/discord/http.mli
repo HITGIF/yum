@@ -21,13 +21,21 @@ end
 
 module Create_message : sig
   module Component : sig
+    module Partial_emoji : sig
+      type t =
+        { name : string
+        ; id : string option
+        ; animated : bool option
+        }
+    end
+
     type t =
       | Action_row of { components : t list }
       | Button of
           { style : int
           ; custom_id : string
           ; label : string option [@default None]
-          ; emoji : string option [@default None]
+          ; emoji : Partial_emoji.t option [@default None]
           }
       | String_select
       | Text_input

@@ -209,11 +209,31 @@ let rec play_loop ({ guild_id; _ } as t) =
     let%bind () =
       Agent.send_message'
         ~buttons:
-          [ { style = Secondary; action = Skip; label = Some "Skip" }
-          ; { style = Danger; action = Stop; label = Some "Stop" }
-          ; { style = Primary; action = Start; label = Some "Start" }
-          ; { style = Primary; action = Play song; label = Some "Play" }
-          ; { style = Success; action = Play_now song; label = Some "Play!" }
+          [ { style = Danger
+            ; action = Skip
+            ; label = Some "Skip"
+            ; emoji = Some Fast_forward
+            }
+          ; { style = Danger
+            ; action = Stop
+            ; label = Some "Stop"
+            ; emoji = Some Stop_button
+            }
+          ; { style = Primary
+            ; action = Start
+            ; label = Some "Start"
+            ; emoji = Some Arrow_forward
+            }
+          ; { style = Primary
+            ; action = Play song
+            ; label = Some "Play"
+            ; emoji = Some Arrow_double_up
+            }
+          ; { style = Success
+            ; action = Play_now song
+            ; label = Some "Play!"
+            ; emoji = Some Arrow_up
+            }
           ]
         t.agent
         None

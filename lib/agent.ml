@@ -10,13 +10,28 @@ module Emoji = struct
     | Pleading_face
     | Thinking
     | Arrow_forward
+    | Arrow_up
     | Arrow_double_up
     | Fast_forward
     | Repeat
     | Stop_button
   [@@deriving sexp_of, to_string ~capitalize:"snake_case"]
 
-  let to_string t = [%string ":%{to_string t}:"]
+  let to_name = to_string
+  let to_string t = [%string ":%{to_name t}:"]
+
+  let to_unicode = function
+    | Yum -> "😋"
+    | Fearful -> "😨"
+    | Pleading_face -> "🥺"
+    | Thinking -> "🤔"
+    | Arrow_forward -> "▶️"
+    | Arrow_up -> "⬆️"
+    | Arrow_double_up -> "⏫"
+    | Fast_forward -> "⏩"
+    | Repeat -> "🔁"
+    | Stop_button -> "⏹️"
+  ;;
 end
 
 module Action = struct
@@ -60,6 +75,7 @@ module Button = struct
     { style : Style.t
     ; action : Action.t
     ; label : string option
+    ; emoji : Emoji.t option
     }
   [@@deriving sexp_of]
 end
@@ -120,12 +136,19 @@ let send_message' ?buttons ?code ?emoji ?emoji_end t message =
       (text_display
        @ [ Action_row
              { components =
-                 List.map buttons ~f:(fun { Button.style; action; label } ->
+                 List.map buttons ~f:(fun { Button.style; action; label; emoji } ->
+                   let emoji =
+                     let%map.Option emoji in
+                     { Partial_emoji.name = Emoji.to_unicode emoji
+                     ; id = None
+                     ; animated = None
+                     }
+                   in
                    Button
                      { style = Button.Style.to_int style
                      ; custom_id = Action.to_custom_id action
                      ; label
-                     ; emoji = None
+                     ; emoji
                      })
              }
          ])
