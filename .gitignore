@@ -41,5 +41,5 @@ core.*
 --Frag0
 
 yum
-videos.txt
 out.opus
+**/secret.json

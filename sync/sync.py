@@ -8,7 +8,7 @@ def cli():
 
 
 @cli.command()
-@click.option("--client-secrets-file", required=True)
+@click.option("--client-secrets-file", default="secret.json")
 @click.option("--output", default="videos.txt")
 def sync(client_secrets_file, output):
     import google_auth_oauthlib.flow
