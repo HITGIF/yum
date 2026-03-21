@@ -53,7 +53,7 @@ chmod +x yum
 ```
 8. Make a playlist file containing a list of YouTube video IDs, e.g. [mine](sync/videos.txt)
 ```sh
-wget https://raw.githubusercontent.com/HITGIF/yum/refs/heads/main/sync/videos.txt
+wget -O https://raw.githubusercontent.com/HITGIF/yum/refs/heads/main/sync/videos.txt
 ```
 
 ## Run
