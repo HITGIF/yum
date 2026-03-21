@@ -86,4 +86,4 @@ val register_slash_commands
   :  auth_token:Discord.Model.Auth_token.t
   -> application_id:Discord.Model.User_id.t
   -> Discord.Model.Slash_command.t list
-  -> Common.Json.t Discord.Http.Response.t Deferred.t
+  -> unit Deferred.t

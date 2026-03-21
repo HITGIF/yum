@@ -287,16 +287,6 @@ let slash_commands : Discord.Model.Slash_command.t list =
   ]
 ;;
 
-let register_slash_commands ~auth_token ~application_id =
-  let%map response =
-    Agent.register_slash_commands ~auth_token ~application_id slash_commands
-  in
-  [%log.info
-    [%here]
-      "Registered slash commands"
-      ~status:(response.status_code : Cohttp.Code.status_code)]
-;;
-
 let parse_slash_command ~name ~options : Yum_command.t Or_error.t =
   let open Or_error.Let_syntax in
   let url () =
@@ -322,7 +312,10 @@ let parse_slash_command ~name ~options : Yum_command.t Or_error.t =
 let handle_events ~(state : State.t) ~gateway event =
   match (event : Discord.Gateway.Event.t) with
   | Ready { application_id } ->
-    register_slash_commands ~auth_token:state.auth_token ~application_id
+    Agent.register_slash_commands
+      ~auth_token:state.auth_token
+      ~application_id
+      slash_commands
   | Voice_state_update { guild_id } ->
     handle_voice_state_update ~state ~gateway ~guild_id;
     return ()

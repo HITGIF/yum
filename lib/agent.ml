@@ -179,4 +179,5 @@ let register_slash_commands ~auth_token ~application_id commands =
     ~user_agent
     ~application_id
     commands
+  |> Deferred.ignore_m
 ;;
