@@ -580,3 +580,243 @@ let%expect_test "voice gateway heartbeat ack" =
     |};
   [%expect {| (Ok (Heartbeat_ack ((nonce 1767537512688773475)))) |}]
 ;;
+
+let test_slash_command_send command =
+  [%yojson_of: Model.Slash_command.t] command
+  |> Common.Json.pretty_to_string
+  |> print_endline
+;;
+
+let%expect_test "Slash_command serialization" =
+  test_slash_command_send
+    { name = "play"
+    ; type_ = Chat_input
+    ; description = "Queue a song"
+    ; options =
+        [ { type_ = String; name = "url"; description = "Video URL"; required = true } ]
+    };
+  [%expect
+    {|
+    {
+      "name": "play",
+      "type": 1,
+      "description": "Queue a song",
+      "options": [
+        {
+          "type": 3,
+          "name": "url",
+          "description": "Video URL",
+          "required": true
+        }
+      ]
+    }
+    |}]
+;;
+
+let%expect_test "Slash_command serialization - no options" =
+  test_slash_command_send
+    { name = "ping"; type_ = Chat_input; description = "Ping"; options = [] };
+  [%expect
+    {|
+    { "name": "ping", "type": 1, "description": "Ping", "options": [] }
+    |}]
+;;
+
+let%expect_test "Interaction_create - slash command with options" =
+  test_receive
+    {|
+    {
+      "op": 0, "s": 1, "t": "INTERACTION_CREATE",
+      "d": {
+        "id": "123",
+        "token": "tok",
+        "type": 2,
+        "guild_id": "g1",
+        "channel_id": "c1",
+        "application_id": "app1",
+        "member": { "user": { "id": "u1", "username": "bob" } },
+        "data": {
+          "name": "play",
+          "type": 1,
+          "options": [
+            { "name": "url", "type": 3, "value": "https://youtu.be/abc" }
+          ]
+        }
+      }
+    }
+    |};
+  [%expect
+    {|
+    (Ok (
+      Dispatch (
+        Interaction_create (
+          (id             123)
+          (token          tok)
+          (guild_id       g1)
+          (channel_id     c1)
+          (application_id app1)
+          (member ((
+            user (
+              (id       u1)
+              (username bob)
+              (global_name ())
+              (bot         ())))))
+          (data (
+            Application_command (
+              (name play)
+              (options ((
+                (name  url)
+                (value https://youtu.be/abc)))))))))))
+    |}]
+;;
+
+let%expect_test "Interaction_create - slash command without options" =
+  test_receive
+    {|
+    {
+      "op": 0, "s": 1, "t": "INTERACTION_CREATE",
+      "d": {
+        "id": "123",
+        "token": "tok",
+        "type": 2,
+        "guild_id": "g1",
+        "channel_id": "c1",
+        "application_id": "app1",
+        "member": { "user": { "id": "u1", "username": "bob" } },
+        "data": { "name": "ping", "type": 1 }
+      }
+    }
+    |};
+  [%expect
+    {|
+    (Ok (
+      Dispatch (
+        Interaction_create (
+          (id             123)
+          (token          tok)
+          (guild_id       g1)
+          (channel_id     c1)
+          (application_id app1)
+          (member ((
+            user (
+              (id       u1)
+              (username bob)
+              (global_name ())
+              (bot         ())))))
+          (data (Application_command ((name ping) (options ()))))))))
+    |}]
+;;
+
+let%expect_test "Interaction_create - slash command with null options" =
+  test_receive
+    {|
+    {
+      "op": 0, "s": 1, "t": "INTERACTION_CREATE",
+      "d": {
+        "id": "123",
+        "token": "tok",
+        "type": 2,
+        "guild_id": "g1",
+        "channel_id": "c1",
+        "application_id": "app1",
+        "member": { "user": { "id": "u1", "username": "bob" } },
+        "data": { "name": "skip", "type": 1, "options": null }
+      }
+    }
+    |};
+  [%expect
+    {|
+    (Ok (
+      Dispatch (
+        Interaction_create (
+          (id             123)
+          (token          tok)
+          (guild_id       g1)
+          (channel_id     c1)
+          (application_id app1)
+          (member ((
+            user (
+              (id       u1)
+              (username bob)
+              (global_name ())
+              (bot         ())))))
+          (data (Application_command ((name skip) (options ()))))))))
+    |}]
+;;
+
+let%expect_test "Interaction_create - message component" =
+  test_receive
+    {|
+    {
+      "op": 0, "s": 1, "t": "INTERACTION_CREATE",
+      "d": {
+        "id": "123",
+        "token": "tok",
+        "type": 3,
+        "guild_id": "g1",
+        "channel_id": "c1",
+        "application_id": "app1",
+        "member": { "user": { "id": "u1", "username": "bob" } },
+        "data": { "custom_id": "skip_btn", "component_type": 2 }
+      }
+    }
+    |};
+  [%expect
+    {|
+    (Ok (
+      Dispatch (
+        Interaction_create (
+          (id             123)
+          (token          tok)
+          (guild_id       g1)
+          (channel_id     c1)
+          (application_id app1)
+          (member ((
+            user (
+              (id       u1)
+              (username bob)
+              (global_name ())
+              (bot         ())))))
+          (data (
+            Message_component (
+              (custom_id      skip_btn)
+              (component_type 2))))))))
+    |}]
+;;
+
+let%expect_test "Interaction_create - unknown type" =
+  test_receive
+    {|
+    {
+      "op": 0, "s": 1, "t": "INTERACTION_CREATE",
+      "d": {
+        "id": "123",
+        "token": "tok",
+        "type": 5,
+        "guild_id": "g1",
+        "channel_id": "c1",
+        "application_id": "app1",
+        "member": { "user": { "id": "u1", "username": "bob" } },
+        "data": { "foo": "bar" }
+      }
+    }
+    |};
+  [%expect
+    {|
+    (Ok (
+      Dispatch (
+        Interaction_create (
+          (id             123)
+          (token          tok)
+          (guild_id       g1)
+          (channel_id     c1)
+          (application_id app1)
+          (member ((
+            user (
+              (id       u1)
+              (username bob)
+              (global_name ())
+              (bot         ())))))
+          (data (Unknown (Assoc ((foo (String bar))))))))))
+    |}]
+;;

@@ -9,6 +9,10 @@ open struct
   module Guild_id = Guild_id
   module Message = Message
   module Message_id = Message_id
+
+  module Slash_command_option =
+    Gateway.Event.Dispatch.Interaction_create.Slash_command_option
+
   module Uri = Uri
 end
 
@@ -296,7 +300,10 @@ let register_slash_commands ~auth_token ~application_id =
 let parse_slash_command ~name ~options : Yum_command.t Or_error.t =
   let open Or_error.Let_syntax in
   let url () =
-    match List.Assoc.find options ~equal:String.equal "url" with
+    match
+      List.find_map options ~f:(fun { Slash_command_option.name; value } ->
+        if String.equal name "url" then Some value else None)
+    with
     | Some url -> Ok url
     | None -> Or_error.error_string "Missing required option: url"
   in

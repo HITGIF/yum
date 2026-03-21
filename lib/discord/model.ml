@@ -425,42 +425,97 @@ module Gateway = struct
 
       module Interaction_create = struct
         module Member = struct
-          type t = { user : User.t } [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+          type t = { user : User.t }
+          [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
         end
 
-        module Type = struct
+        module Slash_command_option = struct
           type t =
-            | Application_command
-            | Message_component
-            | Other of int
+            { name : string
+            ; value : string
+            }
+          [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+        end
+
+        module Application_command = struct
+          module Nullable_options = struct
+            type t = Slash_command_option.t list [@@deriving sexp_of, yojson_of]
+
+            let t_of_yojson = function
+              | `Null -> []
+              | json -> [%of_yojson: Slash_command_option.t list] json
+            ;;
+          end
+
+          type t =
+            { name : string
+            ; options : Nullable_options.t [@default []]
+            }
+          [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+        end
+
+        module Message_component = struct
+          type t =
+            { custom_id : string
+            ; component_type : int
+            }
+          [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+        end
+
+        module Data = struct
+          type t =
+            | Application_command of Application_command.t
+            | Message_component of Message_component.t
+            | Unknown of Json.t
           [@@deriving sexp_of]
+        end
 
-          let of_int_exn = function
-            | 2 -> Application_command
-            | 3 -> Message_component
-            | n -> Other n
-          ;;
-
-          let to_int_exn = function
-            | Application_command -> 2
-            | Message_component -> 3
-            | Other n -> n
-          ;;
-
-          include functor Yojsonable_of_intable
+        module Raw = struct
+          type t =
+            { id : Interaction_id.t
+            ; token : Interaction_token.t
+            ; type_ : int [@key "type"]
+            ; guild_id : Guild_id.t
+            ; channel_id : Channel_id.t
+            ; application_id : User_id.t
+            ; member : Member.t
+            ; data : Json.t
+            }
+          [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
         end
 
         type t =
           { id : Interaction_id.t
           ; token : Interaction_token.t
-          ; type_ : Type.t [@key "type"]
           ; guild_id : Guild_id.t
           ; channel_id : Channel_id.t
           ; application_id : User_id.t
           ; member : Member.t
-          ; data : (string * Json.t) list [@yojson.assoc]
+          ; data : Data.t
           }
-        [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+        [@@deriving sexp_of]
+
+        let t_of_yojson json =
+          let%tydi { id
+                   ; token
+                   ; type_
+                   ; guild_id
+                   ; channel_id
+                   ; application_id
+                   ; member
+                   ; data
+                   }
+            =
+            [%of_yojson: Raw.t] json
+          in
+          let data : Data.t =
+            match type_ with
+            | 2 -> Application_command ([%of_yojson: Application_command.t] data)
+            | 3 -> Message_component ([%of_yojson: Message_component.t] data)
+            | _ -> Unknown data
+          in
+          { id; token; guild_id; channel_id; application_id; member; data }
+        ;;
       end
 
       type t =
@@ -475,7 +530,7 @@ module Gateway = struct
             { name : string
             ; data : Json.t
             }
-      [@@deriving sexp_of, yojson ~capitalize:"SCREAMING_SNAKE_CASE"]
+      [@@deriving sexp_of, of_yojson ~capitalize:"SCREAMING_SNAKE_CASE"]
 
       let of_protocol_or_error event =
         let%with () = Or_error.try_with_join in

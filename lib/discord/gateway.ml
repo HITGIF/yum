@@ -29,7 +29,8 @@ module Event = struct
         ; channel_id : Model.Channel_id.t
         ; user : Model.User.t
         ; name : string
-        ; options : (string * string) list
+        ; options :
+            Model.Gateway.Event.Dispatch.Interaction_create.Slash_command_option.t list
         }
     | Voice_connected of { guild_id : Model.Guild_id.t }
     | Voice of
@@ -573,7 +574,6 @@ and handle_interaction_create
   t
   { Model.Gateway.Event.Dispatch.Interaction_create.id
   ; token
-  ; type_
   ; guild_id
   ; channel_id
   ; application_id
@@ -585,40 +585,14 @@ and handle_interaction_create
   | Connected { state = Ready { user = { id = self_user_id; _ }; _ }; _ } ->
     if [%equal: Model.User_id.t] application_id self_user_id
     then (
-      (* CR: DO NOT RAISE!! handle it gracefully. return an error if that makes sense, otherwise just log an error. *)
-      (* CR: Yojson methods RAISES if it failes to parse. wrap them, or this whole thing, in an Or_error.try_with *)
-      let find key = List.Assoc.find_exn data ~equal:String.equal key in
-      match type_ with
-      | Application_command ->
-        let name = find "name" |> Yojson.Safe.Util.to_string in
-        let options =
-          match List.Assoc.find data ~equal:String.equal "options" with
-          | None | Some `Null -> []
-          | Some options_json ->
-            Yojson.Safe.Util.to_list options_json
-            |> List.map ~f:(fun option ->
-              let name =
-                Yojson.Safe.Util.member "name" option |> Yojson.Safe.Util.to_string
-              in
-              let value =
-                Yojson.Safe.Util.member "value" option |> Yojson.Safe.Util.to_string
-              in
-              name, value)
-        in
+      match data with
+      | Application_command { name; options } ->
         emit t (Slash_command { id; token; guild_id; channel_id; user; name; options })
-      | Message_component ->
-        let custom_id = find "custom_id" |> Yojson.Safe.Util.to_string in
-        let component_type = find "component_type" |> Yojson.Safe.Util.to_int in
-        emit
-          t
-          (Interaction
-             { id; token; guild_id; channel_id; user; custom_id; component_type })
-      | Other type_ ->
+      | Message_component { custom_id; component_type } ->
+        emit t (Interaction { id; token; guild_id; channel_id; user; custom_id; component_type })
+      | Unknown data ->
         [%log.debug
-          [%here]
-            "Ignoring interaction with unsupported type"
-            (type_ : int)
-            (data : (string * Common.Json.t) list)])
+          [%here] "Ignoring interaction with unsupported type" (data : Common.Json.t)])
   | state ->
     [%log.error
       [%here] "Ignoring [Interaction_create] in unexpected state" (state : State.t)]

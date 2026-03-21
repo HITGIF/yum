@@ -21,7 +21,8 @@ module Event : sig
         ; channel_id : Model.Channel_id.t
         ; user : Model.User.t
         ; name : string
-        ; options : (string * string) list
+        ; options :
+            Model.Gateway.Event.Dispatch.Interaction_create.Slash_command_option.t list
         }
     | Voice_connected of { guild_id : Model.Guild_id.t }
     | Voice of
