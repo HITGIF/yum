@@ -41,12 +41,17 @@ sudo yt-dlp --update-to nightly
 ```sh
 curl -fsSL https://deno.land/install.sh | sh
 ```
-6. Download [yum](https://github.com/HITGIF/yum)
+6. Run [bgutil-ytdlp-pot-provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider)
+```sh
+sudo docker run --name bgutil-provider -d --init brainicism/bgutil-ytdlp-pot-provider
+# or $ sudo docker start bgutil-provider
+```
+7. Download [yum](https://github.com/HITGIF/yum)
 ```sh
 wget https://github.com/HITGIF/yum/releases/latest/download/yum
 chmod +x yum
 ```
-7. Make a playlist file containing a list of YouTube video IDs, e.g. [mine](https://gist.github.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c)
+8. Make a playlist file containing a list of YouTube video IDs, e.g. [mine](https://gist.github.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c)
 ```sh
 wget https://gist.githubusercontent.com/HITGIF/bf3ee113f9d86afe717d7fc6a6731b8c/raw/72302e5dda15b3d2e535495b989351a814d38e29/videos.txt
 ```
