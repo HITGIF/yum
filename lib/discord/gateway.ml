@@ -620,8 +620,8 @@ and handle_event t (event : Model.Gateway.Event.Receivable.t) =
   | Dispatch (Message_create message) ->
     emit t (Message message);
     return ()
-  | Dispatch (Interaction_create interation_create) ->
-    handle_interaction_create t interation_create;
+  | Dispatch (Interaction_create interaction_create) ->
+    handle_interaction_create t interaction_create;
     return ()
   | Heartbeat_ack ->
     handle_heartbeat_ack t;
