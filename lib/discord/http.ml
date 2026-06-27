@@ -126,7 +126,13 @@ module Create_message = struct
           ; options : Select_option.t list
           ; placeholder : string option [@default None]
           }
-      | Text_input
+      | Text_input of
+          { custom_id : string
+          ; style : int
+          ; label : string
+          ; placeholder : string option [@default None]
+          ; required : bool option [@default None]
+          }
       | User_select
       | Role_select
       | Mentionable_select
@@ -205,6 +211,27 @@ module Create_message = struct
   ;;
 end
 
+module Edit_message = struct
+  (* Edits an existing message. [components] are passed through verbatim as raw
+     JSON (typically the message's own components echoed back), so they are not
+     re-typed through [Create_message.Component]; this is used to reset a select
+     menu to its unselected state. *)
+  let call ~auth_token ~user_agent ~channel_id ~message_id ~flags ~components =
+    let body = `Assoc [ "flags", Flags.yojson_of_t flags; "components", `List components ] in
+    call
+      (module Json)
+      `PATCH
+      ~body
+      ~auth_token
+      ~user_agent
+      [ "channels"
+      ; Model.Channel_id.to_string channel_id
+      ; "messages"
+      ; Model.Message_id.to_string message_id
+      ]
+  ;;
+end
+
 module Respond_interaction = struct
   module Type = struct
     type t =
@@ -245,6 +272,44 @@ module Respond_interaction = struct
       ~user_agent
       [ "interactions"
       ; Model.Interaction_id.to_string interation_id
+      ; Model.Interaction_token.to_string interaction_token
+      ; "callback"
+      ]
+  ;;
+end
+
+module Show_modal = struct
+  (* Responds to a component interaction by opening a modal (callback type 9).
+     [components] are action rows, each holding a single text input. *)
+  let call
+    ~auth_token
+    ~user_agent
+    ~interaction_id
+    ~interaction_token
+    ~custom_id
+    ~title
+    ~components
+    =
+    let body =
+      `Assoc
+        [ "type", `Int 9
+        ; ( "data"
+          , `Assoc
+              [ "custom_id", `String custom_id
+              ; "title", `String title
+              ; ( "components"
+                , `List (List.map components ~f:Create_message.Component.yojson_of_t) )
+              ] )
+        ]
+    in
+    call
+      (module Json)
+      `POST
+      ~body
+      ~auth_token
+      ~user_agent
+      [ "interactions"
+      ; Model.Interaction_id.to_string interaction_id
       ; Model.Interaction_token.to_string interaction_token
       ; "callback"
       ]

@@ -22,6 +22,20 @@ module Event = struct
         ; custom_id : string
         ; component_type : int
         ; values : string list
+        ; (* The message the component lives on, and its raw components, so the
+             handler can reset a select menu by re-sending them. *)
+          message_id : Model.Message_id.t option
+        ; message_components : Common.Json.t list
+        }
+    | Modal_submit of
+        { id : Model.Interaction_id.t
+        ; token : Model.Interaction_token.t
+        ; guild_id : Model.Guild_id.t
+        ; channel_id : Model.Channel_id.t
+        ; user : Model.User.t
+        ; custom_id : string
+        ; (* (input custom_id, entered value) pairs across the modal's rows. *)
+          values : (string * string) list
         }
     | Slash_command of
         { id : Model.Interaction_id.t
@@ -580,6 +594,7 @@ and handle_interaction_create
   ; application_id
   ; member = { user }
   ; data
+  ; message
   }
   =
   match t.state with
@@ -590,10 +605,30 @@ and handle_interaction_create
       | Application_command { name; options } ->
         emit t (Slash_command { id; token; guild_id; channel_id; user; name; options })
       | Message_component { custom_id; component_type; values } ->
+        let message_id = Option.map message ~f:(fun message -> message.id) in
+        let message_components =
+          Option.value_map message ~default:[] ~f:(fun message -> message.components)
+        in
         emit
           t
           (Interaction
-             { id; token; guild_id; channel_id; user; custom_id; component_type; values })
+             { id
+             ; token
+             ; guild_id
+             ; channel_id
+             ; user
+             ; custom_id
+             ; component_type
+             ; values
+             ; message_id
+             ; message_components
+             })
+      | Modal_submit { custom_id; components } ->
+        let values =
+          List.concat_map components ~f:(fun { components; _ } ->
+            List.map components ~f:(fun { custom_id; value } -> custom_id, value))
+        in
+        emit t (Modal_submit { id; token; guild_id; channel_id; user; custom_id; values })
       | Unknown data ->
         [%log.debug
           [%here] "Ignoring interaction with unsupported type" (data : Common.Json.t)])

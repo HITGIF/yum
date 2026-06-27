@@ -51,7 +51,13 @@ module Create_message : sig
           ; options : Select_option.t list
           ; placeholder : string option [@default None]
           }
-      | Text_input
+      | Text_input of
+          { custom_id : string
+          ; style : int
+          ; label : string
+          ; placeholder : string option [@default None]
+          ; required : bool option [@default None]
+          }
       | User_select
       | Role_select
       | Mentionable_select
@@ -87,6 +93,20 @@ module Create_message : sig
     -> Json.t Response.t Deferred.t
 end
 
+module Edit_message : sig
+  (** Edits a message. [components] are sent verbatim as raw JSON (not re-typed
+      through {!Create_message.Component}), so the caller can echo a message's
+      own components back to reset a select menu. *)
+  val call
+    :  auth_token:Model.Auth_token.t
+    -> user_agent:string
+    -> channel_id:Model.Channel_id.t
+    -> message_id:Model.Message_id.t
+    -> flags:Flags.t
+    -> components:Json.t list
+    -> Json.t Response.t Deferred.t
+end
+
 module Respond_interaction : sig
   module Type : sig
     type t =
@@ -117,6 +137,20 @@ module Respond_interaction : sig
     -> interation_id:Model.Interaction_id.t
     -> interaction_token:Model.Interaction_token.t
     -> Request.t
+    -> Json.t Response.t Deferred.t
+end
+
+module Show_modal : sig
+  (** Responds to a component interaction by opening a modal. [components] are
+      action rows of text inputs. *)
+  val call
+    :  auth_token:Model.Auth_token.t
+    -> user_agent:string
+    -> interaction_id:Model.Interaction_id.t
+    -> interaction_token:Model.Interaction_token.t
+    -> custom_id:string
+    -> title:string
+    -> components:Create_message.Component.t list
     -> Json.t Response.t Deferred.t
 end
 

@@ -666,7 +666,8 @@ let%expect_test "Interaction_create - slash command with options" =
               (name play)
               (options ((
                 (name  url)
-                (value https://youtu.be/abc)))))))))))
+                (value https://youtu.be/abc)))))))
+          (message ())))))
     |}]
 ;;
 
@@ -703,7 +704,8 @@ let%expect_test "Interaction_create - slash command without options" =
               (username bob)
               (global_name ())
               (bot         ())))))
-          (data (Application_command ((name ping) (options ()))))))))
+          (data (Application_command ((name ping) (options ()))))
+          (message ())))))
     |}]
 ;;
 
@@ -740,7 +742,8 @@ let%expect_test "Interaction_create - slash command with null options" =
               (username bob)
               (global_name ())
               (bot         ())))))
-          (data (Application_command ((name skip) (options ()))))))))
+          (data (Application_command ((name skip) (options ()))))
+          (message ())))))
     |}]
 ;;
 
@@ -781,7 +784,113 @@ let%expect_test "Interaction_create - message component" =
             Message_component (
               (custom_id      skip_btn)
               (component_type 2)
-              (values ()))))))))
+              (values ()))))
+          (message ())))))
+    |}]
+;;
+
+let%expect_test "Interaction_create - select pick carries values and message" =
+  test_receive
+    {|
+    {
+      "op": 0, "s": 1, "t": "INTERACTION_CREATE",
+      "d": {
+        "id": "123",
+        "token": "tok",
+        "type": 3,
+        "guild_id": "g1",
+        "channel_id": "c1",
+        "application_id": "app1",
+        "member": { "user": { "id": "u1", "username": "bob" } },
+        "data": {
+          "custom_id": "yum_search_select",
+          "component_type": 3,
+          "values": ["(Play(youtube xyz))"]
+        },
+        "message": {
+          "id": "m1",
+          "components": [ { "type": 1, "components": [ { "type": 3 } ] } ]
+        }
+      }
+    }
+    |};
+  [%expect
+    {|
+    (Ok (
+      Dispatch (
+        Interaction_create (
+          (id             123)
+          (token          tok)
+          (guild_id       g1)
+          (channel_id     c1)
+          (application_id app1)
+          (member ((
+            user (
+              (id       u1)
+              (username bob)
+              (global_name ())
+              (bot         ())))))
+          (data (
+            Message_component (
+              (custom_id      yum_search_select)
+              (component_type 3)
+              (values ("(Play(youtube xyz))")))))
+          (message ((
+            (id m1)
+            (components ((
+              Assoc (
+                (type (Int 1)) (components (List ((Assoc ((type (Int 3))))))))))))))))))
+    |}]
+;;
+
+let%expect_test "Interaction_create - modal submit" =
+  test_receive
+    {|
+    {
+      "op": 0, "s": 1, "t": "INTERACTION_CREATE",
+      "d": {
+        "id": "123",
+        "token": "tok",
+        "type": 5,
+        "guild_id": "g1",
+        "channel_id": "c1",
+        "application_id": "app1",
+        "member": { "user": { "id": "u1", "username": "bob" } },
+        "data": {
+          "custom_id": "yum_search_modal",
+          "components": [
+            { "type": 1, "components": [
+              { "type": 4, "custom_id": "query", "value": "never gonna give you up" }
+            ]}
+          ]
+        }
+      }
+    }
+    |};
+  [%expect
+    {|
+    (Ok (
+      Dispatch (
+        Interaction_create (
+          (id             123)
+          (token          tok)
+          (guild_id       g1)
+          (channel_id     c1)
+          (application_id app1)
+          (member ((
+            user (
+              (id       u1)
+              (username bob)
+              (global_name ())
+              (bot         ())))))
+          (data (
+            Modal_submit (
+              (custom_id yum_search_modal)
+              (components (((
+                components ((
+                  (custom_id query)
+                  (value     "never gonna give you up"))))))))))
+          (message ())))))
     |}]
 ;;
 
@@ -793,7 +902,7 @@ let%expect_test "Interaction_create - unknown type" =
       "d": {
         "id": "123",
         "token": "tok",
-        "type": 5,
+        "type": 99,
         "guild_id": "g1",
         "channel_id": "c1",
         "application_id": "app1",
@@ -818,6 +927,7 @@ let%expect_test "Interaction_create - unknown type" =
               (username bob)
               (global_name ())
               (bot         ())))))
-          (data (Unknown (Assoc ((foo (String bar))))))))))
+          (data (Unknown (Assoc ((foo (String bar))))))
+          (message ())))))
     |}]
 ;;

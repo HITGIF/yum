@@ -463,10 +463,48 @@ module Gateway = struct
           [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
         end
 
+        (* The message a component interaction originated from. We keep its raw
+           [components] so we can re-send them verbatim to reset a select menu
+           (see [Http.Edit_message]); a string select keeps its chosen option
+           highlighted client-side, and re-picking the same option fires no
+           interaction until the menu is reset. *)
+        module Message_ref = struct
+          type t =
+            { id : Message_id.t
+            ; components : Json.t list [@default []]
+            }
+          [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+        end
+
+        (* A modal submission (interaction type 5). [components] are the action
+           rows the modal was opened with, each holding inputs with their entered
+           [value]. *)
+        module Modal_submit = struct
+          module Input = struct
+            type t =
+              { custom_id : string
+              ; value : string [@default ""]
+              }
+            [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+          end
+
+          module Action_row = struct
+            type t = { components : Input.t list [@default []] }
+            [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+          end
+
+          type t =
+            { custom_id : string
+            ; components : Action_row.t list [@default []]
+            }
+          [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
+        end
+
         module Data = struct
           type t =
             | Application_command of Application_command.t
             | Message_component of Message_component.t
+            | Modal_submit of Modal_submit.t
             | Unknown of Json.t
           [@@deriving sexp_of]
         end
@@ -481,6 +519,7 @@ module Gateway = struct
             ; application_id : User_id.t
             ; member : Member.t
             ; data : Json.t
+            ; message : Message_ref.t option [@default None]
             }
           [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
         end
@@ -493,6 +532,7 @@ module Gateway = struct
           ; application_id : User_id.t
           ; member : Member.t
           ; data : Data.t
+          ; message : Message_ref.t option
           }
         [@@deriving sexp_of]
 
@@ -505,6 +545,7 @@ module Gateway = struct
                    ; application_id
                    ; member
                    ; data
+                   ; message
                    }
             =
             [%of_yojson: Raw.t] json
@@ -513,9 +554,10 @@ module Gateway = struct
             match type_ with
             | 2 -> Application_command ([%of_yojson: Application_command.t] data)
             | 3 -> Message_component ([%of_yojson: Message_component.t] data)
+            | 5 -> Modal_submit ([%of_yojson: Modal_submit.t] data)
             | _ -> Unknown data
           in
-          { id; token; guild_id; channel_id; application_id; member; data }
+          { id; token; guild_id; channel_id; application_id; member; data; message }
         ;;
       end
 

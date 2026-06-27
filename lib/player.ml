@@ -129,7 +129,9 @@ let play ~cancellation_token ({ guild_id; yt_dlp_path; ffmpeg_path; _ } as t) so
   let process_result ~tag = function
     | Ok () -> return ()
     | Error error ->
-      let retryable = [ "HTTP Error 403: Forbidden" ] in
+      let retryable =
+        [ "HTTP Error 403: Forbidden"; "The downloaded file is empty" ]
+      in
       let ignorable =
         [ "Broken pipe"; "Did not get any data blocks"; "Interrupted by user" ]
       in
@@ -239,6 +241,7 @@ let rec play_loop ({ guild_id; _ } as t) =
             ; label = Some "Play!"
             ; emoji = Some Arrow_up
             }
+          ; { style = Secondary; action = Search; label = Some "Search"; emoji = Some Mag }
           ]
         t.agent
         None

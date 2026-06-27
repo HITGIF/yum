@@ -14,6 +14,17 @@ module Event : sig
         ; custom_id : string
         ; component_type : int
         ; values : string list
+        ; message_id : Model.Message_id.t option
+        ; message_components : Common.Json.t list
+        }
+    | Modal_submit of
+        { id : Model.Interaction_id.t
+        ; token : Model.Interaction_token.t
+        ; guild_id : Model.Guild_id.t
+        ; channel_id : Model.Channel_id.t
+        ; user : Model.User.t
+        ; custom_id : string
+        ; values : (string * string) list
         }
     | Slash_command of
         { id : Model.Interaction_id.t

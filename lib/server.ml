@@ -99,6 +99,11 @@ let respond ?emoji ?emoji_end agent how_to_respond message =
       message
 ;;
 
+let with_detail message = function
+  | Some detail -> [%string "%{message} %{detail}"]
+  | None -> message
+;;
+
 let join_user_voice ~state ~gateway ~agent ~guild_id ~user_id how_to_respond =
   match%bind Discord.Gateway.join_user_voice gateway ~guild_id ~user_id with
   | `Ok voice_channel ->
@@ -132,7 +137,7 @@ let handle_skip ~state ~guild_id ~agent how_to_respond =
     return ()
 ;;
 
-let handle_play ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond =
+let handle_play ?url ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond =
   match%bind
     player_or_join_user ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
   with
@@ -140,8 +145,10 @@ let handle_play ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond =
   | Some player ->
     if Player.started player
     then (
+      (* Show the URL only when queued (it doesn't start playing right away, so
+         the link is useful); when it plays immediately, skip it. *)
       Player.queue player song;
-      respond ~emoji_end:Arrow_double_up agent how_to_respond "Queued")
+      respond ~emoji_end:Arrow_double_up agent how_to_respond (with_detail "Queued" url))
     else (
       let%map () = respond ~emoji_end:Arrow_forward agent how_to_respond "Playing" in
       Player.queue player song;
@@ -324,6 +331,8 @@ let handle_events ~(state : State.t) ~gateway event =
       ; custom_id
       ; component_type = _
       ; values
+      ; message_id
+      ; message_components
       } ->
     let agent = Agent.create ~auth_token:state.auth_token ~channel_id in
     let how_to_respond = `Respond_interaction (~interaction_id, ~interaction_token) in
@@ -334,15 +343,55 @@ let handle_events ~(state : State.t) ~gateway event =
       | value :: _ -> value
       | [] -> custom_id
     in
-    (match Agent.Action.of_custom_id action_id with
-     | Skip -> handle_skip ~state ~guild_id ~agent how_to_respond
-     | Stop -> handle_stop ~state ~gateway ~agent ~guild_id how_to_respond
-     | Start -> handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
-     | Play song ->
-       handle_play ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
-     | Play_now song ->
-       handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
-     | Unknown _ -> return ())
+    let%bind () =
+      match Agent.Action.of_custom_id action_id with
+      | Skip -> handle_skip ~state ~guild_id ~agent how_to_respond
+      | Stop -> handle_stop ~state ~gateway ~agent ~guild_id how_to_respond
+      | Start -> handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
+      | Play song ->
+        handle_play
+          ~url:(Song.to_url song)
+          ~state
+          ~gateway
+          ~agent
+          ~guild_id
+          ~user_id
+          ~song
+          how_to_respond
+      | Play_now song ->
+        handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
+      | Search -> Agent.show_search_modal agent ~interaction_id ~interaction_token
+      | Unknown _ -> return ()
+    in
+    (* A select keeps the chosen option highlighted, so re-picking it fires no
+       interaction. Reset the menu (best-effort) so the same song can be queued
+       again. Buttons ([values = []]) don't need this. *)
+    (match values, message_id with
+     | _ :: _, Some message_id ->
+       Agent.reset_select agent ~message_id ~components:message_components
+     | _ -> return ())
+  | Modal_submit
+      { id = interaction_id
+      ; token = interaction_token
+      ; guild_id = _
+      ; channel_id
+      ; user = _
+      ; custom_id
+      ; values
+      } ->
+    let agent = Agent.create ~auth_token:state.auth_token ~channel_id in
+    let how_to_respond = `Respond_interaction (~interaction_id, ~interaction_token) in
+    if String.equal custom_id Agent.search_modal_custom_id
+    then (
+      match
+        List.Assoc.find values Agent.search_query_input_custom_id ~equal:String.equal
+        |> Option.map ~f:String.strip
+      with
+      | Some query when not (String.is_empty query) ->
+        handle_search ~state ~agent ~query how_to_respond
+      | _ ->
+        respond ~emoji:Pleading_face agent how_to_respond "Enter something to search for")
+    else return ()
   | Slash_command
       { id = interaction_id
       ; token = interaction_token

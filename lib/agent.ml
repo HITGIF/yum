@@ -3,6 +3,12 @@ open! Async
 
 let user_agent = "Yum (https://github.com/hitgif/yum, 2.0)"
 
+(* Custom ids tying the search modal together: the modal the [Search] button
+   opens, and its single text input. The server matches these when the modal is
+   submitted. *)
+let search_modal_custom_id = "yum_search_modal"
+let search_query_input_custom_id = "query"
+
 module Emoji = struct
   type t =
     | Yum
@@ -83,6 +89,7 @@ module Action = struct
     | Start
     | Play of Song.t
     | Play_now of Song.t
+    | Search
     | Unknown of string
   [@@deriving sexp]
 
@@ -185,27 +192,26 @@ let send_message' ?buttons ?code ?emoji ?emoji_end t message =
       | None -> []
       | Some content -> [ Text_display { content } ]
     in
-    send_components_message
-      t
-      (text_display
-       @ [ Action_row
-             { components =
-                 List.map buttons ~f:(fun { Button.style; action; label; emoji } ->
-                   let emoji =
-                     let%map.Option emoji in
-                     { Partial_emoji.name = Emoji.to_unicode emoji
-                     ; id = None
-                     ; animated = None
-                     }
-                   in
-                   Button
-                     { style = Button.Style.to_int style
-                     ; custom_id = Action.to_custom_id action
-                     ; label
-                     ; emoji
-                     })
-             }
-         ])
+    let button { Button.style; action; label; emoji } =
+      let emoji =
+        let%map.Option emoji in
+        { Partial_emoji.name = Emoji.to_unicode emoji; id = None; animated = None }
+      in
+      Button
+        { style = Button.Style.to_int style
+        ; custom_id = Action.to_custom_id action
+        ; label
+        ; emoji
+        }
+    in
+    (* Discord allows at most 5 buttons per action row, so spread them across
+       rows of 5. *)
+    let action_rows =
+      List.chunks_of buttons ~length:5
+      |> List.map ~f:(fun buttons ->
+        Action_row { components = List.map buttons ~f:button })
+    in
+    send_components_message t (text_display @ action_rows)
 ;;
 
 let send_message ?buttons ?code ?emoji ?emoji_end t message =
@@ -240,6 +246,21 @@ let send_select ?emoji ?placeholder t message options =
        ])
 ;;
 
+let reset_select t ~message_id ~components =
+  (* Re-send the message's own components verbatim. A string select keeps the
+     last-picked option highlighted on the client, and re-picking it fires no
+     interaction; editing the message back to these (unselected) components
+     clears that so the same option can be picked again. *)
+  Discord.Http.Edit_message.call
+    ~auth_token:t.auth_token
+    ~user_agent
+    ~channel_id:t.channel_id
+    ~message_id
+    ~flags:[ Is_components_v2 ]
+    ~components
+  |> Deferred.ignore_m
+;;
+
 let respond_interaction ?emoji ?emoji_end t id token message =
   let content = content ?emoji ?emoji_end (Some message) in
   Discord.Http.Respond_interaction.call
@@ -250,6 +271,31 @@ let respond_interaction ?emoji ?emoji_end t id token message =
     { type_ = Some Channel_message_with_source
     ; data = Some { content; flags = Some [ Ephemeral ] }
     }
+  |> Deferred.ignore_m
+;;
+
+let show_search_modal t ~interaction_id ~interaction_token =
+  let open Discord.Http.Create_message.Component in
+  Discord.Http.Show_modal.call
+    ~auth_token:t.auth_token
+    ~user_agent
+    ~interaction_id
+    ~interaction_token
+    ~custom_id:search_modal_custom_id
+    ~title:"Search"
+    ~components:
+      [ Action_row
+          { components =
+              [ Text_input
+                  { custom_id = search_query_input_custom_id
+                  ; style = 1 (* short, single-line *)
+                  ; label = "What do you want to play?"
+                  ; placeholder = Some "song name, artist, keywords…"
+                  ; required = Some true
+                  }
+              ]
+          }
+      ]
   |> Deferred.ignore_m
 ;;
 

@@ -43,10 +43,18 @@ module Action : sig
     | Start
     | Play of Song.t
     | Play_now of Song.t
+    | Search
     | Unknown of string
 
   val of_custom_id : string -> t
 end
+
+(** Custom id of the modal opened by the [Search] button. *)
+val search_modal_custom_id : string
+
+(** Custom id of the text input inside the search modal; its entered value is the
+    query. *)
+val search_query_input_custom_id : string
 
 module Button : sig
   module Style : sig
@@ -110,6 +118,24 @@ val send_select
   -> t
   -> string
   -> Select.Option.t list
+  -> unit Deferred.t
+
+(** [reset_select t ~message_id ~components] re-sends [components] (a message's
+    own components, echoed verbatim) to clear a select menu's highlighted choice,
+    so the same option can be selected again. *)
+val reset_select
+  :  t
+  -> message_id:Discord.Model.Message_id.t
+  -> components:Common.Json.t list
+  -> unit Deferred.t
+
+(** [show_search_modal t ~interaction_id ~interaction_token] responds to a button
+    click by opening a modal that prompts for a search query. The submission
+    arrives as a [Modal_submit] gateway event with {!search_modal_custom_id}. *)
+val show_search_modal
+  :  t
+  -> interaction_id:Discord.Model.Interaction_id.t
+  -> interaction_token:Discord.Model.Interaction_token.t
   -> unit Deferred.t
 
 val respond_interaction
