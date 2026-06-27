@@ -8,6 +8,7 @@ type t =
   | Play of Song.t
   | Play_now of Song.t
   | Play_list of Song.Playlist.t
+  | Search of { query : string }
   | Ping
   | Help
 [@@deriving variants]
@@ -93,6 +94,39 @@ let with_url
   }
 ;;
 
+let query_option ~description : Discord.Model.Slash_command.Option.t =
+  { type_ = String; name = "query"; description; required = true }
+;;
+
+let find_query options =
+  match
+    List.find_map options ~f:(fun { Slash_command_option.name; value } ->
+      if String.equal name "query" then Some value else None)
+  with
+  | Some query -> Ok query
+  | None -> Or_error.error_string "Missing required option: query"
+;;
+
+let parse_search args =
+  match List.filter args ~f:(Fn.non String.is_empty) with
+  | [] -> too_few_args
+  | words -> Ok (Search { query = String.concat words ~sep:" " })
+;;
+
+let search_entry ~slash_name ~text_names ~description : Entry.t =
+  { description
+  ; text_names
+  ; text_args = "<query>"
+  ; parse_text_args = parse_search
+  ; slash_name
+  ; slash_options = [ query_option ~description:"Search keywords" ]
+  ; parse_slash_options =
+      (fun options ->
+        let%bind.Or_error query = find_query options in
+        Ok (Search { query }))
+  }
+;;
+
 let entries : Entry.t list =
   let f entry acc _ = entry :: acc in
   Variants.fold
@@ -158,6 +192,12 @@ let entries : Entry.t list =
          ~arg_text_description:"<playlist-url>"
          ~arg_slash_description:"Playlist URL"
          ~parse:(parse_single_playlist play_list)
+       |> f)
+    ~search:
+      (search_entry
+         ~slash_name:"search"
+         ~text_names:[ "search" ]
+         ~description:"Search YouTube and Bilibili and pick a song to play"
        |> f)
   |> List.rev
 ;;
@@ -249,6 +289,7 @@ module%test _ = struct
       [ play | p ] <video-url>           : queue a song to play next
       [ play! | p! ] <video-url>         : play a song immediately, skipping the current
       [ playlist | pl ] <playlist-url>   : queue all songs in a playlist
+      [ search ] <query>                 : search YouTube and Bilibili and pick a song to play
       [ ping ]                           : ping yum for a pong
       [ help | h ]                       : print help text
       ```

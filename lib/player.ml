@@ -188,7 +188,12 @@ let play ~cancellation_token ({ guild_id; yt_dlp_path; ffmpeg_path; _ } as t) so
      | Ok () ->
        [%log.error [%here] "Retrying song..." (guild_id : Guild_id.t) (song : Song.t)];
        let%map () =
-         Agent.send_message ~emoji:Repeat t.agent [%string "Retrying... ```%{error}```"]
+         Agent.send_message
+           ~emoji:Repeat
+           t.agent
+           [%string
+             "Retrying... (%{Attempt.attempt_number attempt#Int}/%{Attempt.max \
+              attempt#Int}) ```%{error}```"]
        in
        `Repeat attempt
      | Error _ ->

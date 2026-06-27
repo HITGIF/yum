@@ -14,9 +14,26 @@ module Emoji : sig
     | Repeat
     | Stop_button
     | Wave
+    | Mag
+    | Clipboard
+    | Regional_indicator_y
+    | Regional_indicator_b
 
   val to_name : t -> string
   val to_unicode : t -> string
+end
+
+module Custom_emoji : sig
+  (** A Discord custom (server/application) emoji. *)
+  type t =
+    { name : string
+    ; id : string
+    ; animated : bool
+    }
+
+  (** [of_string s] parses the Discord chat form ["<:name:id>"] (or
+      ["<a:name:id>"] for animated). *)
+  val of_string : string -> t Or_error.t
 end
 
 module Action : sig
@@ -48,6 +65,17 @@ module Button : sig
     }
 end
 
+module Select : sig
+  module Option : sig
+    type t =
+      { label : string
+      ; description : string option
+      ; emoji : [ `Unicode of Emoji.t | `Custom of Custom_emoji.t ] option
+      ; action : Action.t
+      }
+  end
+end
+
 type t
 
 val create
@@ -71,6 +99,17 @@ val send_message
   -> ?emoji_end:Emoji.t
   -> t
   -> string
+  -> unit Deferred.t
+
+(** [send_select t message options] posts [message] followed by a single-choice
+    dropdown of [options]; selecting one triggers a message-component interaction
+    carrying that option's [action]. *)
+val send_select
+  :  ?emoji:Emoji.t
+  -> ?placeholder:string
+  -> t
+  -> string
+  -> Select.Option.t list
   -> unit Deferred.t
 
 val respond_interaction

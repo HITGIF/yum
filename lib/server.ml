@@ -19,15 +19,17 @@ module State = struct
     ; idle_songs : Song.t Nonempty_list.t
     ; ffmpeg_path : File_path.Absolute.t
     ; yt_dlp_path : File_path.Absolute.t
+    ; bilibili_sessdata : string option
     ; leave_timer_cancellation_tokens : unit Ivar.t Guild_id.Table.t
     }
 
-  let create ~auth_token ~idle_songs ~ffmpeg_path ~yt_dlp_path () =
+  let create ~auth_token ~idle_songs ~ffmpeg_path ~yt_dlp_path ~bilibili_sessdata () =
     { auth_token
     ; players = Guild_id.Table.create ()
     ; idle_songs
     ; ffmpeg_path
     ; yt_dlp_path
+    ; bilibili_sessdata
     ; leave_timer_cancellation_tokens = Guild_id.Table.create ()
     }
   ;;
@@ -71,6 +73,18 @@ module State = struct
         player)
   ;;
 end
+
+(* Emoji that tag search results by source. To use a custom server (guild) emoji,
+   swap the line to [`Custom (custom "<:name:id>")] — get the "<:name:id>" string
+   by typing "\:emojiname:" in Discord (animated emoji render as "<a:name:id>").
+   The bot must be a member of a guild that has the emoji. *)
+let custom emoji = Agent.Custom_emoji.of_string emoji |> Or_error.ok_exn
+
+let source_emoji (source : Search.Source.t) =
+  match source with
+  | Youtube -> `Custom (custom "<:Youtubelogo:1520358723359342655>")
+  | Bilibili -> `Unicode Agent.Emoji.Regional_indicator_b
+;;
 
 let respond ?emoji ?emoji_end agent how_to_respond message =
   match how_to_respond with
@@ -159,6 +173,42 @@ let handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond =
     Player.start_once player
 ;;
 
+let handle_search ~(state : State.t) ~agent ~query how_to_respond =
+  (* Acknowledge promptly (slash interactions must be answered within 3s, and the
+     search itself can be slower), then post the results as their own message. *)
+  let%bind () =
+    respond ~emoji:Mag agent how_to_respond [%string "Searching for %{query}..."]
+  in
+  match%bind
+    Search.search
+      ?bilibili_sessdata:state.bilibili_sessdata
+      ~yt_dlp_path:state.yt_dlp_path
+      ~query
+      ()
+  with
+  | Error error ->
+    let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
+    Agent.send_message ~code:() ~emoji:Fearful agent error
+  | Ok [] ->
+    Agent.send_message ~emoji_end:Pleading_face agent [%string "No results for %{query}"]
+  | Ok results ->
+    let options =
+      List.map results ~f:(fun { Search.Result.song; source; label; description } ->
+        { Agent.Select.Option.label
+        ; (* Discord rejects an empty (but present) description. *)
+          description = Option.some_if (not (String.is_empty description)) description
+        ; emoji = Some (source_emoji source)
+        ; action = Play song
+        })
+    in
+    Agent.send_select
+      ~emoji:Clipboard
+      ~placeholder:"Pick a song to queue"
+      agent
+      [%string "Results for %{query}"]
+      options
+;;
+
 let handle_command ~state ~gateway ~agent ~guild_id ~user_id how_to_respond command =
   match (command : Yum_command.t) with
   | Help -> respond agent how_to_respond Yum_command.Text_command.help_text
@@ -170,6 +220,7 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id how_to_respond comm
     handle_play ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
   | Play_now song ->
     handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
+  | Search { query } -> handle_search ~state ~agent ~query how_to_respond
   | Play_list playlist ->
     (match Song.Playlist.to_src playlist with
      | `Youtube url ->
@@ -272,10 +323,18 @@ let handle_events ~(state : State.t) ~gateway event =
       ; user = { id = user_id; _ }
       ; custom_id
       ; component_type = _
+      ; values
       } ->
     let agent = Agent.create ~auth_token:state.auth_token ~channel_id in
     let how_to_respond = `Respond_interaction (~interaction_id, ~interaction_token) in
-    (match Agent.Action.of_custom_id custom_id with
+    (* A button click carries its action in [custom_id]; a select pick carries it
+       as the chosen option's value in [values]. *)
+    let action_id =
+      match values with
+      | value :: _ -> value
+      | [] -> custom_id
+    in
+    (match Agent.Action.of_custom_id action_id with
      | Skip -> handle_skip ~state ~guild_id ~agent how_to_respond
      | Stop -> handle_stop ~state ~gateway ~agent ~guild_id how_to_respond
      | Start -> handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
@@ -336,12 +395,25 @@ let read_youtube_songs filename =
   |> Nonempty_list.map ~f:Song.of_youtube_string
 ;;
 
-let run ~discord_bot_token:auth_token ~youtube_songs ~ffmpeg_path ~yt_dlp_path () =
+let run
+  ~discord_bot_token:auth_token
+  ~youtube_songs
+  ~ffmpeg_path
+  ~yt_dlp_path
+  ~bilibili_sessdata
+  ()
+  =
   Gc.disable_compaction ~allocation_policy:`Don't_change ();
   Scheduler.report_long_cycle_times ~cutoff:(Time_float.Span.of_int_ms 100) ();
   let youtube_songs = read_youtube_songs youtube_songs in
   let state =
-    State.create ~auth_token ~idle_songs:youtube_songs ~ffmpeg_path ~yt_dlp_path ()
+    State.create
+      ~auth_token
+      ~idle_songs:youtube_songs
+      ~ffmpeg_path
+      ~yt_dlp_path
+      ~bilibili_sessdata
+      ()
   in
   let%with (`Shutdown shutdown) = Graceful_shutdown.with_ in
   let%with gateway =

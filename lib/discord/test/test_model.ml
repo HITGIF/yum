@@ -780,7 +780,8 @@ let%expect_test "Interaction_create - message component" =
           (data (
             Message_component (
               (custom_id      skip_btn)
-              (component_type 2))))))))
+              (component_type 2)
+              (values ()))))))))
     |}]
 ;;
 

@@ -103,6 +103,16 @@ module Create_message = struct
       [@@deriving sexp_of, yojson_of]
     end
 
+    module Select_option = struct
+      type t =
+        { label : string
+        ; value : string
+        ; description : string option [@default None]
+        ; emoji : Partial_emoji.t option [@default None]
+        }
+      [@@deriving sexp_of, yojson_of]
+    end
+
     type t =
       | Action_row of { components : t list }
       | Button of
@@ -111,7 +121,11 @@ module Create_message = struct
           ; label : string option [@default None]
           ; emoji : Partial_emoji.t option [@default None]
           }
-      | String_select
+      | String_select of
+          { custom_id : string
+          ; options : Select_option.t list
+          ; placeholder : string option [@default None]
+          }
       | Text_input
       | User_select
       | Role_select
@@ -321,6 +335,53 @@ module%test _ = struct
     test [ Button { style = 1; custom_id = "1"; label = None; emoji = None } ];
     [%expect
       {| [ { "type": 2, "style": 1, "custom_id": "1", "label": null, "emoji": null } ] |}];
+    test
+      [ Action_row
+          { components =
+              [ String_select
+                  { custom_id = "pick"
+                  ; placeholder = Some "Choose…"
+                  ; options =
+                      [ { label = "First"
+                        ; value = "1"
+                        ; description = Some "the first"
+                        ; emoji = Some { name = "🅰️"; id = None; animated = None }
+                        }
+                      ; { label = "Second"; value = "2"; description = None; emoji = None }
+                      ]
+                  }
+              ]
+          }
+      ];
+    [%expect
+      {|
+      [
+        {
+          "type": 1,
+          "components": [
+            {
+              "type": 3,
+              "custom_id": "pick",
+              "options": [
+                {
+                  "label": "First",
+                  "value": "1",
+                  "description": "the first",
+                  "emoji": { "name": "🅰️", "id": null, "animated": null }
+                },
+                {
+                  "label": "Second",
+                  "value": "2",
+                  "description": null,
+                  "emoji": null
+                }
+              ],
+              "placeholder": "Choose…"
+            }
+          ]
+        }
+      ]
+      |}];
     return ()
   ;;
 end

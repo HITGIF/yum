@@ -6,5 +6,6 @@ val run
   -> youtube_songs:Filename.t
   -> ffmpeg_path:File_path.Absolute.t
   -> yt_dlp_path:File_path.Absolute.t
+  -> bilibili_sessdata:string option
   -> unit
   -> unit Deferred.Or_error.t

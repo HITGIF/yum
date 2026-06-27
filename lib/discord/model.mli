@@ -259,6 +259,7 @@ module Gateway : sig
           type t =
             { custom_id : string
             ; component_type : int
+            ; values : string list
             }
           [@@deriving sexp_of]
         end

@@ -184,6 +184,7 @@ let supported_url_formats_msg =
 ;;
 
 let of_youtube_string = Fn.compose youtube Youtube.of_string
+let of_bilibili_string = Fn.compose bilibili Bilibili.of_string
 
 let of_url url =
   let open Option.Let_syntax in

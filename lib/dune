@@ -5,4 +5,4 @@
    (link_flags :standard -cclib -lopus)))
  (preprocess
   (pps ppx_jane ppx_with ppx_yojson_conv))
- (libraries async camlzip core discord dedent todo))
+ (libraries async camlzip core cryptokit discord dedent todo))

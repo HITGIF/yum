@@ -14,6 +14,10 @@ let create ?reset_after ~max () =
 ;;
 
 let reset t = t.remaining <- t.max
+let max t = t.max
+
+(* How many attempts have been consumed since the last reset. *)
+let attempt_number t = t.max - t.remaining
 
 let try_ t =
   let now = Time_ns.now () in

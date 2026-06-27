@@ -458,6 +458,7 @@ module Gateway = struct
           type t =
             { custom_id : string
             ; component_type : int
+            ; values : string list [@default []]
             }
           [@@yojson.allow_extra_fields] [@@deriving sexp_of, yojson]
         end

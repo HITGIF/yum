@@ -13,6 +13,7 @@ module Event : sig
         ; user : Model.User.t
         ; custom_id : string
         ; component_type : int
+        ; values : string list
         }
     | Slash_command of
         { id : Model.Interaction_id.t

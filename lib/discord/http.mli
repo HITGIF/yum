@@ -29,6 +29,15 @@ module Create_message : sig
         }
     end
 
+    module Select_option : sig
+      type t =
+        { label : string
+        ; value : string
+        ; description : string option [@default None]
+        ; emoji : Partial_emoji.t option [@default None]
+        }
+    end
+
     type t =
       | Action_row of { components : t list }
       | Button of
@@ -37,7 +46,11 @@ module Create_message : sig
           ; label : string option [@default None]
           ; emoji : Partial_emoji.t option [@default None]
           }
-      | String_select
+      | String_select of
+          { custom_id : string
+          ; options : Select_option.t list
+          ; placeholder : string option [@default None]
+          }
       | Text_input
       | User_select
       | Role_select

@@ -16,6 +16,10 @@ module Emoji = struct
     | Repeat
     | Stop_button
     | Wave
+    | Mag
+    | Clipboard
+    | Regional_indicator_y
+    | Regional_indicator_b
   [@@deriving sexp_of, to_string ~capitalize:"snake_case"]
 
   let to_name = to_string
@@ -33,6 +37,42 @@ module Emoji = struct
     | Repeat -> "🔁"
     | Stop_button -> "⏹️"
     | Wave -> "👋"
+    | Mag -> "🔍"
+    | Clipboard -> "📋"
+    | Regional_indicator_y -> "🇾"
+    | Regional_indicator_b -> "🇧"
+  ;;
+end
+
+module Custom_emoji = struct
+  (* A Discord custom (server/application) emoji, written in chat as "<:name:id>",
+     or "<a:name:id>" when animated. *)
+  type t =
+    { name : string
+    ; id : string
+    ; animated : bool
+    }
+  [@@deriving sexp_of]
+
+  let of_string raw =
+    let s = String.strip raw in
+    let s = String.chop_prefix_if_exists s ~prefix:"<" in
+    let s = String.chop_suffix_if_exists s ~suffix:">" in
+    let animated, body =
+      match String.chop_prefix s ~prefix:"a:" with
+      | Some body -> true, body
+      | None -> false, String.chop_prefix_if_exists s ~prefix:":"
+    in
+    match String.lsplit2 body ~on:':' with
+    | Some (name, id)
+      when (not (String.is_empty name))
+           && (not (String.is_empty id))
+           && String.for_all id ~f:Char.is_digit -> Ok { name; id; animated }
+    | _ ->
+      Or_error.error_string
+        [%string
+          "Invalid custom emoji %{raw}: expected the Discord form <:name:id> (or \
+           <a:name:id> for animated)"]
   ;;
 end
 
@@ -80,6 +120,18 @@ module Button = struct
     ; emoji : Emoji.t option
     }
   [@@deriving sexp_of]
+end
+
+module Select = struct
+  module Option = struct
+    type t =
+      { label : string
+      ; description : string option
+      ; emoji : [ `Unicode of Emoji.t | `Custom of Custom_emoji.t ] option
+      ; action : Action.t
+      }
+    [@@deriving sexp_of]
+  end
 end
 
 type t =
@@ -160,6 +212,34 @@ let send_message ?buttons ?code ?emoji ?emoji_end t message =
   send_message' ?buttons ?code ?emoji ?emoji_end t (Some message)
 ;;
 
+let send_select ?emoji ?placeholder t message options =
+  let open Discord.Http.Create_message.Component in
+  let text_display =
+    match content ?emoji (Some message) with
+    | None -> []
+    | Some content -> [ Text_display { content } ]
+  in
+  let options =
+    List.map options ~f:(fun { Select.Option.label; description; emoji; action } ->
+      let emoji =
+        Option.map emoji ~f:(function
+          | `Unicode emoji ->
+            { Partial_emoji.name = Emoji.to_unicode emoji; id = None; animated = None }
+          | `Custom { Custom_emoji.name; id; animated } ->
+            { Partial_emoji.name; id = Some id; animated = Some animated })
+      in
+      { Select_option.label; value = Action.to_custom_id action; description; emoji })
+  in
+  send_components_message
+    t
+    (text_display
+     @ [ Action_row
+           { components =
+               [ String_select { custom_id = "yum_search_select"; options; placeholder } ]
+           }
+       ])
+;;
+
 let respond_interaction ?emoji ?emoji_end t id token message =
   let content = content ?emoji ?emoji_end (Some message) in
   Discord.Http.Respond_interaction.call
@@ -181,3 +261,22 @@ let register_slash_commands ~auth_token ~application_id commands =
     commands
   |> Deferred.ignore_m
 ;;
+
+module%test _ = struct
+  let%expect_test "Custom_emoji.of_string" =
+    let test s = Custom_emoji.of_string s |> [%sexp_of: Custom_emoji.t Or_error.t] |> print_s in
+    test "<:youtube:123456789>";
+    test "<a:loading:987654321>";
+    test "bilibili:42";
+    test "🇾";
+    [%expect
+      {|
+      (Ok ((name youtube) (id 123456789) (animated false)))
+      (Ok ((name loading) (id 987654321) (animated true)))
+      (Ok ((name bilibili) (id 42) (animated false)))
+      (Error
+       "Invalid custom emoji \240\159\135\190: expected the Discord form <:name:id> (or <a:name:id> for animated)")
+      |}];
+    return ()
+  ;;
+end

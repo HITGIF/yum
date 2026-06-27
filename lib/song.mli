@@ -3,6 +3,7 @@ open! Core
 type t [@@deriving sexp]
 
 val of_youtube_string : string -> t
+val of_bilibili_string : string -> t
 val to_url : t -> string
 val to_src : t -> [> `Bilibili of string * int option | `Youtube of string ]
 val of_url : string -> t Or_error.t

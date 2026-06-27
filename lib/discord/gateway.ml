@@ -21,6 +21,7 @@ module Event = struct
         ; user : Model.User.t
         ; custom_id : string
         ; component_type : int
+        ; values : string list
         }
     | Slash_command of
         { id : Model.Interaction_id.t
@@ -588,8 +589,11 @@ and handle_interaction_create
       match data with
       | Application_command { name; options } ->
         emit t (Slash_command { id; token; guild_id; channel_id; user; name; options })
-      | Message_component { custom_id; component_type } ->
-        emit t (Interaction { id; token; guild_id; channel_id; user; custom_id; component_type })
+      | Message_component { custom_id; component_type; values } ->
+        emit
+          t
+          (Interaction
+             { id; token; guild_id; channel_id; user; custom_id; component_type; values })
       | Unknown data ->
         [%log.debug
           [%here] "Ignoring interaction with unsupported type" (data : Common.Json.t)])
