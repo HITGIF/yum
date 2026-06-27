@@ -6,6 +6,9 @@ let headers =
     [ ( "user-agent"
       , "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like \
          Gecko) Chrome/96.0.4664.110 Safari/537.36" )
+      (* Bilibili's video CDN returns 403 without a bilibili referer, and the
+         json APIs are friendlier with one too. *)
+    ; "referer", "https://www.bilibili.com"
     ]
 ;;
 
@@ -20,103 +23,109 @@ let validate_response ~(here : [%call_pos]) response =
           (here : Source_code_position.t)]
 ;;
 
-let decompress string =
-  let gzipped = Filename_unix.temp_file "bilibili_html_gzipped" "" in
-  let%bind () = Writer.save gzipped ~contents:string in
-  let in_channel = Gzip.open_in gzipped in
-  let buf_size = Byte_units.of_kilobytes 100. |> Byte_units.bytes_int_exn in
-  let buf = Bytes.create buf_size in
-  let rec read acc =
-    match Gzip.input in_channel buf 0 buf_size with
-    | 0 -> List.rev acc |> String.concat
-    | len -> (Bytes.subo ~len buf |> Bytes.to_string) :: acc |> read
-  in
-  let output =
-    Or_error.try_with (fun () -> read []) |> Or_error.tag ~tag:"Error decompressing HTML"
-  in
-  Gzip.close_in in_channel;
-  Core_unix.remove gzipped;
-  return output
-;;
-
-let get_html html_url =
-  let%bind response, body = Cohttp_async.Client.get ~headers html_url in
+(* GET [url], validate the HTTP status, then parse the body as a bilibili json
+   API envelope: [{ "code": 0, "message": "OK", "data": ... }]. A non-zero
+   [code] is an application-level error even though the HTTP status is 200. *)
+let get_json ~url ~of_yojson =
+  let%bind response, body = Cohttp_async.Client.get ~headers url in
   let%bind.Deferred.Or_error () =
     validate_response response
-    |> Or_error.tag_s_lazy
-         ~tag:[%lazy_sexp { html_url : string = Uri.to_string html_url }]
+    |> Or_error.tag_s_lazy ~tag:[%lazy_sexp { url : string = Uri.to_string url }]
     |> return
   in
-  let%bind body = Cohttp_async.Body.to_string body in
-  decompress body
+  let%map body = Cohttp_async.Body.to_string body in
+  Or_error.try_with (fun () ->
+    let json = Yojson.Safe.from_string body in
+    let member name = Yojson.Safe.Util.member name json in
+    match member "code" |> Yojson.Safe.Util.to_int with
+    | 0 -> member "data" |> of_yojson
+    | code ->
+      raise_s
+        [%message
+          "Bilibili API returned an error"
+            (code : int)
+            ~message:(member "message" |> Yojson.Safe.Util.to_string : string)
+            ~url:(Uri.to_string url : string)])
+  |> Or_error.tag_s_lazy
+       ~tag:[%lazy_sexp { url : string = Uri.to_string url }]
 ;;
 
-let audio_resource_regex =
-  lazy
-    Re.(
-      compile
-        (seq
-           [ str "window.__playinfo__="; group (non_greedy (rep1 any)); str "</script" ]))
-;;
-
-module Audio_resource = struct
+module Api = struct
   open Ppx_yojson_conv_lib.Yojson_conv.Primitives
 
-  type audio =
-    { base_url : string
-    ; backup_url : string list
-    ; bandwidth : int
-    }
-  [@@yojson.allow_extra_fields] [@@deriving sexp_of, of_yojson, fields ~getters]
+  (* https://api.bilibili.com/x/web-interface/view?bvid=... *)
+  module View = struct
+    type page =
+      { cid : int
+      ; page : int
+      }
+    [@@yojson.allow_extra_fields] [@@deriving of_yojson]
 
-  let urls { base_url; backup_url; _ } = base_url :: backup_url
+    type t =
+      { cid : int (* cid of the first page *)
+      ; pages : page list
+      }
+    [@@yojson.allow_extra_fields] [@@deriving of_yojson]
+  end
 
-  type dash = { audio : audio list }
-  [@@yojson.allow_extra_fields] [@@deriving sexp_of, of_yojson]
+  (* https://api.bilibili.com/x/player/playurl?bvid=...&cid=...&fnval=16 *)
+  module Playurl = struct
+    type audio =
+      { base_url : string [@key "baseUrl"]
+      ; backup_url : string list [@key "backupUrl"] [@default []]
+      ; bandwidth : int
+      }
+    [@@yojson.allow_extra_fields] [@@deriving sexp_of, of_yojson, fields ~getters]
 
-  type data = { dash : dash }
-  [@@yojson.allow_extra_fields] [@@deriving sexp_of, of_yojson]
+    let urls { base_url; backup_url; _ } = base_url :: backup_url
 
-  type t = { data : data } [@@yojson.allow_extra_fields] [@@deriving sexp_of, of_yojson]
+    type dash = { audio : audio list }
+    [@@yojson.allow_extra_fields] [@@deriving of_yojson]
+
+    type t = { dash : dash } [@@yojson.allow_extra_fields] [@@deriving of_yojson]
+  end
 end
 
-let parse_audio_urls html =
-  let%bind.Deferred.Or_error group =
-    Or_error.try_with (fun () -> Re.exec (force audio_resource_regex) html)
-    |> Or_error.tag_s_lazy
-         ~tag:
-           [%lazy_message
-             "Error matching audio resource regex in html"
-               ~html_truncated:(String.prefix html 500)]
-    |> return
+(* Resolve the [cid] (the id bilibili uses to identify a specific playable part)
+   for the requested [part], defaulting to the first part. *)
+let get_cid ~bvid ~part =
+  let url =
+    Uri.of_string
+      [%string "https://api.bilibili.com/x/web-interface/view?bvid=%{bvid}"]
   in
-  let%bind.Deferred.Or_error audio_resource =
-    match Re.Group.get_opt group 1 with
-    | None ->
-      Deferred.Or_error.error_s
-        [%message "Audio resource not found in HTML" (html : string)]
-    | Some str ->
-      Or_error.try_with (fun () ->
-        Yojson.Safe.from_string str |> [%of_yojson: Audio_resource.t])
-      |> Or_error.tag ~tag:"Error parsing audio resource json"
-      |> return
+  let%map.Deferred.Or_error view = get_json ~url ~of_yojson:Api.View.t_of_yojson in
+  match part with
+  | None | Some 1 -> view.cid
+  | Some part ->
+    (match List.find view.pages ~f:(fun page -> page.page = part) with
+     | Some page -> page.cid
+     | None -> view.cid)
+;;
+
+(* highest bandwidth first, falling back to backup mirror urls *)
+let best_audio_urls (audios : Api.Playurl.audio list) =
+  List.sort
+    audios
+    ~compare:
+      (Comparable.lift
+         (Comparable.reverse [%compare: int])
+         ~f:Api.Playurl.bandwidth)
+  |> List.concat_map ~f:Api.Playurl.urls
+  |> List.map ~f:Uri.of_string
+;;
+
+let get_audio_urls ~bvid ~cid =
+  let url =
+    Uri.of_string
+      [%string
+        "https://api.bilibili.com/x/player/playurl?bvid=%{bvid}&cid=%{cid#Int}&fnval=16"]
   in
-  match audio_resource.data.dash.audio with
-  | [] -> Deferred.Or_error.error_s [%message "No audios found in audio resource"]
-  | audios ->
-    (match
-       List.sort
-         audios
-         ~compare:
-           (* highest bandwidth first *)
-           (Comparable.lift
-              (Comparable.reverse [%compare: int])
-              ~f:Audio_resource.bandwidth)
-       |> List.hd_exn
-       |> Audio_resource.urls
-     with
-     | [] -> Deferred.Or_error.error_s [%message "No URL found for audio resource"]
-     | urls -> List.map urls ~f:Uri.of_string |> Deferred.Or_error.return)
+  let%bind.Deferred.Or_error playurl =
+    get_json ~url ~of_yojson:Api.Playurl.t_of_yojson
+  in
+  match playurl.dash.audio with
+  | [] -> Deferred.Or_error.error_s [%message "No audio streams found" bvid (cid : int)]
+  | audios -> best_audio_urls audios |> Deferred.Or_error.return
 ;;
 
 let download_audio audio_urls =
@@ -141,4 +150,9 @@ let download_audio audio_urls =
   |> Deferred.ok
 ;;
 
-let download url = get_html url >>=? parse_audio_urls >>=? download_audio
+(* [video] is the BV id; [part] is the optional 1-based part number. *)
+let download ~video:bvid ~part =
+  let%bind.Deferred.Or_error cid = get_cid ~bvid ~part in
+  let%bind.Deferred.Or_error audio_urls = get_audio_urls ~bvid ~cid in
+  download_audio audio_urls
+;;

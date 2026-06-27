@@ -159,7 +159,7 @@ let play ~cancellation_token ({ guild_id; yt_dlp_path; ffmpeg_path; _ } as t) so
       | `Youtube url ->
         let%with on_finish = with_on_finish ~tag:"yt-dlp" in
         Yt_dlp.download ~prog:yt_dlp_path ~cancellation_token ~on_finish url
-      | `Bilibili url -> Bilibili.download (Uri.of_string url)
+      | `Bilibili (video, part) -> Bilibili.download ~video ~part
     in
     let encode reader =
       let%with on_finish = with_on_finish ~tag:"ffmpeg" in

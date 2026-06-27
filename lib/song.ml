@@ -119,12 +119,17 @@ end = struct
   end
 end
 
-module Bilibili : S = struct
+module Bilibili : sig
+  include S
+
+  val video : t -> string
+  val part : t -> int option
+end = struct
   type t =
     { video : string
     ; part : int option
     }
-  [@@deriving sexp]
+  [@@deriving sexp, fields ~getters]
 
   let prefix_normal = "https://www.bilibili.com/video/"
   let prefix_short = "https://b23.tv/"
@@ -196,11 +201,9 @@ let to_url = function
   | Bilibili id -> Bilibili.to_url id
 ;;
 
-let to_src t =
-  let url = to_url t in
-  match t with
-  | Youtube _ -> `Youtube url
-  | Bilibili _ -> `Bilibili url
+let to_src = function
+  | Youtube _ as t -> `Youtube (to_url t)
+  | Bilibili b -> `Bilibili (Bilibili.video b, Bilibili.part b)
 ;;
 
 module Playlist = struct

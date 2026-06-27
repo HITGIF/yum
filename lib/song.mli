@@ -4,7 +4,7 @@ type t [@@deriving sexp]
 
 val of_youtube_string : string -> t
 val to_url : t -> string
-val to_src : t -> [> `Bilibili of string | `Youtube of string ]
+val to_src : t -> [> `Bilibili of string * int option | `Youtube of string ]
 val of_url : string -> t Or_error.t
 val supported_url_formats_msg : string
 
