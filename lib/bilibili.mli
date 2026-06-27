@@ -5,6 +5,9 @@ open! Async
     bilibili [video] (a BV id) and optional 1-based [part]. *)
 val download : video:string -> part:int option -> Reader.t Deferred.Or_error.t
 
+(** [get_title ~bvid] resolves a bilibili video's title via the view API. *)
+val get_title : ?sessdata:string -> bvid:string -> unit -> string Deferred.Or_error.t
+
 module Search_result : sig
   type t =
     { bvid : string

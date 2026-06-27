@@ -6,17 +6,9 @@ open! Async
 let max_results = 25
 let max_field_length = 100
 
-module Source = struct
-  type t =
-    | Youtube
-    | Bilibili
-  [@@deriving sexp, equal]
-end
-
 module Result = struct
   type t =
     { song : Song.t
-    ; source : Source.t
     ; label : string
     ; description : string
     }
@@ -35,7 +27,9 @@ let utf8_width c =
 (* Byte index just past the first [chars] codepoints (or the whole string). *)
 let utf8_prefix_len s ~chars =
   let len = String.length s in
-  let rec loop i n = if i >= len || n >= chars then i else loop (i + utf8_width s.[i]) (n + 1) in
+  let rec loop i n =
+    if i >= len || n >= chars then i else loop (i + utf8_width s.[i]) (n + 1)
+  in
   loop 0 0
 ;;
 
@@ -64,26 +58,28 @@ let description parts =
    mix, ...), so drop it. *)
 let search_youtube ~yt_dlp_path ~query =
   let%map.Deferred.Or_error results =
-    Yt_dlp.search ~prog:yt_dlp_path ~max_results query
+    Youtube.search ~prog:yt_dlp_path ~max_results query
   in
-  List.filter_map results ~f:(fun { Yt_dlp.Search_result.id; title; uploader; duration } ->
-    let%map.Option duration = duration in
-    { Result.song = Song.of_youtube_string id
-    ; source = Youtube
-    ; label = label ~fallback:id title
-    ; description = description [ uploader; Some duration ]
-    })
+  List.filter_map
+    results
+    ~f:(fun { Youtube.Search_result.id; title; uploader; duration } ->
+      let%map.Option duration in
+      { Result.song = Song.of_youtube_string id
+      ; label = label ~fallback:id title
+      ; description = description [ uploader; Some duration ]
+      })
 ;;
 
 let search_bilibili ~sessdata ~query =
   let%map.Deferred.Or_error results = Bilibili.search ?sessdata ~max_results query in
-  List.filter_map results ~f:(fun { Bilibili.Search_result.bvid; title; author; duration } ->
-    let%map.Option duration = duration in
-    { Result.song = Song.of_bilibili_string bvid
-    ; source = Bilibili
-    ; label = label ~fallback:bvid title
-    ; description = description [ author; Some duration ]
-    })
+  List.filter_map
+    results
+    ~f:(fun { Bilibili.Search_result.bvid; title; author; duration } ->
+      let%map.Option duration in
+      { Result.song = Song.of_bilibili_string bvid
+      ; label = label ~fallback:bvid title
+      ; description = description [ author; Some duration ]
+      })
 ;;
 
 (* Interleave so both platforms are represented even when one returns far more. *)
@@ -131,7 +127,10 @@ let search ?bilibili_sessdata ~yt_dlp_path ~query () =
   and bilibili = search_bilibili ~sessdata:bilibili_sessdata ~query in
   match youtube, bilibili with
   | Ok youtube, Ok bilibili ->
-    Ok (interleave youtube bilibili |> rank_by_relevance ~query |> fun r -> List.take r max_results)
+    Ok
+      (interleave youtube bilibili
+       |> rank_by_relevance ~query
+       |> fun r -> List.take r max_results)
   | Ok results, Error _ | Error _, Ok results -> Ok (List.take results max_results)
   | Error youtube, Error bilibili -> Error (Error.of_list [ youtube; bilibili ])
 ;;
@@ -159,14 +158,14 @@ module%test _ = struct
   ;;
 
   let%expect_test "rank_by_relevance floats query matches up, stable otherwise" =
-    let result ~source label =
-      { Result.song = Song.of_youtube_string "x"; source; label; description = "" }
+    let result label =
+      { Result.song = Song.of_youtube_string "x"; label; description = "" }
     in
     (* Interleaved input: a strong match sits low; unrelated items sit high. *)
-    [ result ~source:Youtube "random video"
-    ; result ~source:Bilibili "another clip"
-    ; result ~source:Youtube "asu kamitsubaki live"
-    ; result ~source:Bilibili "asu cover"
+    [ result "random video"
+    ; result "another clip"
+    ; result "asu kamitsubaki live"
+    ; result "asu cover"
     ]
     |> rank_by_relevance ~query:"asu kamitsubaki"
     |> List.iter ~f:(fun { Result.label; _ } -> print_endline label);

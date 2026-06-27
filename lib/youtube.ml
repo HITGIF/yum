@@ -88,6 +88,54 @@ let search ?(prog = default_prog) ~max_results query =
   String.split_lines output |> List.filter_map ~f:Search_result.of_line
 ;;
 
+let default_get_title_args =
+  [ "--no-warnings"; "--skip-download"; "--print"; "%(title)s" ]
+;;
+
+(* yt-dlp's [--print title] still runs the full extractor (even with
+   [--skip-download], which only skips the media file): it fetches the watch
+   page, runs the JS player, and resolves every format — ~12s per video, where
+   the download was never the bottleneck. *)
+let get_title_via_yt_dlp ?(prog = default_prog) url =
+  let args = default_get_title_args @ [ url ] in
+  let%map.Deferred.Or_error output =
+    Process.run ~prog:(File_path.Absolute.to_string prog) ~args ()
+  in
+  String.strip output
+;;
+
+(* The oEmbed endpoint is a static metadata service: a single HTTP GET returns
+   the title directly, with no extractor/JS-player work — a few hundred ms
+   instead of seconds. It doesn't cover private/age-restricted/deleted videos,
+   so [get_title] falls back to yt-dlp for those. *)
+let get_title_via_oembed url =
+  Monitor.try_with_or_error (fun () ->
+    let oembed =
+      Uri.add_query_params'
+        (Uri.of_string "https://www.youtube.com/oembed")
+        [ "format", "json"; "url", url ]
+    in
+    let%bind response, body = Cohttp_async.Client.get oembed in
+    let%map body = Cohttp_async.Body.to_string body in
+    match Cohttp.Response.status response with
+    | `OK ->
+      Yojson.Safe.from_string body
+      |> Yojson.Safe.Util.member "title"
+      |> Yojson.Safe.Util.to_string
+    | status ->
+      raise_s
+        [%message
+          "YouTube oEmbed request failed"
+            ~status:(Cohttp.Code.string_of_status status : string)
+            (url : string)])
+;;
+
+let get_title ?prog url =
+  match%bind get_title_via_oembed url with
+  | Ok _ as title -> return title
+  | Error _ -> get_title_via_yt_dlp ?prog url
+;;
+
 module%test _ = struct
   let%expect_test "parse search lines" =
     let test line =

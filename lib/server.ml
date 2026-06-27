@@ -20,6 +20,7 @@ module State = struct
     ; ffmpeg_path : File_path.Absolute.t
     ; yt_dlp_path : File_path.Absolute.t
     ; bilibili_sessdata : string option
+    ; song_title : Song_title.t
     ; leave_timer_cancellation_tokens : unit Ivar.t Guild_id.Table.t
     }
 
@@ -30,6 +31,7 @@ module State = struct
     ; ffmpeg_path
     ; yt_dlp_path
     ; bilibili_sessdata
+    ; song_title = Song_title.create ~yt_dlp_path ~bilibili_sessdata
     ; leave_timer_cancellation_tokens = Guild_id.Table.create ()
     }
   ;;
@@ -61,6 +63,7 @@ module State = struct
             ~yt_dlp_path:t.yt_dlp_path
             ~guild_id
             ~agent
+            ~song_title:t.song_title
             ~voice_channel
             ~idle_songs:t.idle_songs
             ~frames_writer
@@ -75,15 +78,15 @@ module State = struct
 end
 
 (* Emoji that tag search results by source. To use a custom server (guild) emoji,
-   swap the line to [`Custom (custom "<:name:id>")] — get the "<:name:id>" string
+   swap the line to [Custom (custom "<:name:id>")] — get the "<:name:id>" string
    by typing "\:emojiname:" in Discord (animated emoji render as "<a:name:id>").
    The bot must be a member of a guild that has the emoji. *)
-let custom emoji = Agent.Custom_emoji.of_string emoji |> Or_error.ok_exn
+let custom emoji = Agent.Emoji.Custom.of_string emoji |> Or_error.ok_exn
 
-let source_emoji (source : Search.Source.t) =
-  match source with
-  | Youtube -> `Custom (custom "<:Youtubelogo:1520358723359342655>")
-  | Bilibili -> `Unicode Agent.Emoji.Regional_indicator_b
+let source_emoji song : Agent.Emoji.t =
+  match Song.source song with
+  | `Youtube -> Custom (custom "<:Youtubelogo:1520358723359342655>")
+  | `Bilibili -> Unicode Regional_indicator_b
 ;;
 
 let respond ?emoji ?emoji_end agent how_to_respond message =
@@ -137,21 +140,44 @@ let handle_skip ~state ~guild_id ~agent how_to_respond =
     return ()
 ;;
 
-let handle_queue ~state ~guild_id ~agent how_to_respond =
+let handle_queue ~(state : State.t) ~guild_id ~agent how_to_respond =
   match State.player state ~guild_id with
   | None -> respond ~emoji_end:Thinking agent how_to_respond "Not playing"
   | Some player ->
+    let max_shown = 20 in
+    let queued = Player.queued player in
+    let shown = List.take queued max_shown in
+    (* Kick off all title fetches concurrently; they're cached per song, so the
+       next [/queue] is instant. *)
+    let with_title song = song, Song_title.get state.song_title song in
+    let now_playing = Option.map (Player.playing player) ~f:with_title in
+    let shown = List.map shown ~f:with_title in
+    (* Stay within Discord's ~3s interaction-response window: show whatever titles
+       resolve quickly and fall back to the bare URL for the rest (still cached,
+       so they'll show next time). *)
+    let%bind () =
+      Deferred.any_unit
+        [ Option.to_list now_playing @ shown
+          |> List.map ~f:(fun (_, title) -> Deferred.ignore_m title)
+          |> Deferred.all_unit
+        ; Clock_ns.after (Time_ns.Span.of_sec 2.)
+        ]
+    in
+    (* Wrap URLs in <...> so Discord doesn't unfurl a wall of link embeds. *)
+    let label (song, title) =
+      match Deferred.peek title with
+      | Some (Ok title) -> [%string "%{title} <%{Song.to_url song}>"]
+      | _ -> [%string "<%{Song.to_url song}>"]
+    in
+    let emoji (song, _) = source_emoji song |> Agent.Emoji.to_markup in
     let now_playing =
-      match Player.playing player with
-      | Some song -> [%string "Now playing: <%{Song.to_url song}>"]
+      match now_playing with
+      | Some entry -> [%string "%{emoji entry} %{label entry}"]
       | None -> "Nothing playing"
     in
-    let queued = Player.queued player in
-    let max_shown = 20 in
-    (* Wrap URLs in <...> so Discord doesn't unfurl a wall of link embeds. *)
     let lines =
-      List.take queued max_shown
-      |> List.mapi ~f:(fun i song -> [%string "%{i + 1#Int}. <%{Song.to_url song}>"])
+      List.mapi shown ~f:(fun i entry ->
+        [%string "%{i + 1#Int}. %{emoji entry} %{label entry}"])
     in
     let overflow =
       match List.length queued - max_shown with
@@ -160,14 +186,20 @@ let handle_queue ~state ~guild_id ~agent how_to_respond =
     in
     let up_next =
       match queued with
-      | [] -> [ "Queue is empty" ]
-      | _ -> ("Up next:" :: lines) @ overflow
+      | [] -> [ [%string "%{Agent.Emoji.to_markup (Unicode U7a7a)} Nothing queued"] ]
+      | _ ->
+        ([%string "%{Agent.Emoji.to_markup (Unicode Clipboard)} Up next:"] :: lines)
+        @ overflow
     in
     respond
-      ~emoji:Clipboard
       agent
       how_to_respond
-      (String.concat (now_playing :: up_next) ~sep:"\n")
+      (String.concat
+         ([%string "%{Agent.Emoji.to_markup (Unicode Arrow_forward)} Now playing:"]
+          :: now_playing
+          :: ""
+          :: up_next)
+         ~sep:"\n")
 ;;
 
 let handle_play ?url ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond =
@@ -233,11 +265,11 @@ let handle_search ~(state : State.t) ~agent ~query how_to_respond =
     Agent.send_message ~emoji_end:Pleading_face agent [%string "No results for %{query}"]
   | Ok results ->
     let options =
-      List.map results ~f:(fun { Search.Result.song; source; label; description } ->
+      List.map results ~f:(fun { Search.Result.song; label; description } ->
         { Agent.Select.Option.label
         ; (* Discord rejects an empty (but present) description. *)
           description = Option.some_if (not (String.is_empty description)) description
-        ; emoji = Some (source_emoji source)
+        ; emoji = Some (source_emoji song)
         ; action = Play song
         })
     in
@@ -273,7 +305,7 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id how_to_respond comm
   | Play_list playlist ->
     (match Song.Playlist.to_src playlist with
      | `Youtube url ->
-       (match%bind Yt_dlp.get_playlist url with
+       (match%bind Youtube.get_playlist url with
         | Error error ->
           let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
           Agent.send_message ~code:() ~emoji:Fearful agent error

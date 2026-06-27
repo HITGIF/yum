@@ -1,17 +1,9 @@
 open! Core
 open! Async
 
-module Source : sig
-  type t =
-    | Youtube
-    | Bilibili
-  [@@deriving sexp, equal]
-end
-
 module Result : sig
   type t =
     { song : Song.t
-    ; source : Source.t (** which platform the result came from *)
     ; label : string (** option label shown in the dropdown (<= 100 chars) *)
     ; description : string (** option description, e.g. "uploader · 3:42" *)
     }
@@ -19,14 +11,14 @@ module Result : sig
 end
 
 (** [search ~yt_dlp_path ~query ()] runs a keyword search across both YouTube and
-    Bilibili, returning up to 25 merged results (Discord's select-menu limit),
-    each already trimmed to Discord's per-field length limits and tagged with its
-    [source]. If one source errors, the other's results are still returned; only
-    when both fail is an error surfaced.
+    Bilibili, returning up to 25 merged results (Discord's select-menu limit), each
+    already trimmed to Discord's per-field length limits and tagged with its [source]. If
+    one source errors, the other's results are still returned; only when both fail is an
+    error surfaced.
 
-    [bilibili_sessdata] is a logged-in [SESSDATA] cookie used for the Bilibili
-    half (generally required to clear search risk control); it has no effect on
-    the YouTube half. *)
+    [bilibili_sessdata] is a logged-in [SESSDATA] cookie used for the Bilibili half
+    (generally required to clear search risk control); it has no effect on the YouTube
+    half. *)
 val search
   :  ?bilibili_sessdata:string
   -> yt_dlp_path:File_path.Absolute.t

@@ -176,6 +176,11 @@ type t =
   | Bilibili of Bilibili.t
 [@@deriving variants, sexp]
 
+let source = function
+  | Youtube _ -> `Youtube
+  | Bilibili _ -> `Bilibili
+;;
+
 let supported_url_formats_msg =
   [ "> Supported `<video-url>` formats:" ]
   @ (Youtube.supported_url_formats @ Bilibili.supported_url_formats

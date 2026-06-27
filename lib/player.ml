@@ -40,6 +40,7 @@ type t =
   ; yt_dlp_path : File_path.Absolute.t
   ; guild_id : Guild_id.t
   ; mutable agent : Agent.t
+  ; song_title : Song_title.t
   ; mutable voice_channel : Channel_id.t
   ; mutable frames_writer : Audio.Pcm_frame.t Queue.t Pipe.Writer.t option
   ; mutable playing : Song.t option
@@ -63,6 +64,7 @@ let close
   ; yt_dlp_path = _
   ; guild_id
   ; agent = _
+  ; song_title = _
   ; voice_channel = _
   ; frames_writer
   ; playing = _
@@ -80,6 +82,11 @@ let close
 
 let set_agent t agent = t.agent <- agent
 let set_voice_channel t channel_id = t.voice_channel <- channel_id
+
+(* Warm the title cache in the background so [/queue] (and anything else showing
+   titles) doesn't have to wait. Cached and deduped, so priming a song already
+   primed is cheap. *)
+let prime_title t song = don't_wait_for (Deferred.ignore_m (Song_title.get t.song_title song))
 
 let set_frames_writer t frames_writer =
   let old_frames_writer = t.frames_writer in
@@ -164,7 +171,7 @@ let play ~cancellation_token ({ guild_id; yt_dlp_path; ffmpeg_path; _ } as t) so
       match Song.to_src song with
       | `Youtube url ->
         let%with on_finish = with_on_finish ~tag:"yt-dlp" in
-        Yt_dlp.download ~prog:yt_dlp_path ~cancellation_token ~on_finish url
+        Youtube.download ~prog:yt_dlp_path ~cancellation_token ~on_finish url
       | `Bilibili (video, part) -> Bilibili.download ~video ~part
     in
     let encode reader =
@@ -215,6 +222,7 @@ let rec play_loop ({ guild_id; _ } as t) =
   | false ->
     let cancellation_token = Bvar.wait t.skip in
     let song = Songs.next t.songs in
+    prime_title t song;
     [%log.info [%here] "Playing song" (guild_id : Guild_id.t) (song : Song.t)];
     let%bind () = Agent.send_message ~emoji:Arrow_forward t.agent (Song.to_url song) in
     let%bind () =
@@ -272,6 +280,7 @@ let started t = Set_once.is_some t.started
 
 let queue ({ guild_id; _ } as t) song =
   [%log.info [%here] "Queueing song" (guild_id : Guild_id.t) (song : Song.t)];
+  prime_title t song;
   Songs.enqueue_back t.songs song
 ;;
 
@@ -281,11 +290,14 @@ let queue_all ({ guild_id; _ } as t) songs =
       "Queueing all songs"
       (guild_id : Guild_id.t)
       ~num_songs:(List.length songs : int)];
-  List.iter songs ~f:(Songs.enqueue_back t.songs)
+  List.iter songs ~f:(fun song ->
+    prime_title t song;
+    Songs.enqueue_back t.songs song)
 ;;
 
 let play_now ({ guild_id; _ } as t) song =
   [%log.info [%here] "Playing song now" (guild_id : Guild_id.t) (song : Song.t)];
+  prime_title t song;
   Songs.enqueue_front t.songs song;
   Bvar.broadcast t.skip ()
 ;;
@@ -300,6 +312,7 @@ let create
   ~yt_dlp_path
   ~guild_id
   ~agent
+  ~song_title
   ~voice_channel
   ~idle_songs
   ~frames_writer
@@ -308,6 +321,7 @@ let create
   ; yt_dlp_path
   ; guild_id
   ; agent
+  ; song_title
   ; voice_channel
   ; frames_writer
   ; playing = None

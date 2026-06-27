@@ -72,6 +72,7 @@ module Api = struct
 
     type t =
       { cid : int (* cid of the first page *)
+      ; title : string [@default ""]
       ; pages : page list
       }
     [@@yojson.allow_extra_fields] [@@deriving of_yojson]
@@ -177,6 +178,22 @@ let get_cid ~bvid ~part =
     (match List.find view.pages ~f:(fun page -> page.page = part) with
      | Some page -> page.cid
      | None -> view.cid)
+;;
+
+let get_title ?sessdata ~bvid () =
+  let headers =
+    match sessdata with
+    | Some sessdata -> Cohttp.Header.add headers "cookie" [%string "SESSDATA=%{sessdata}"]
+    | None -> headers
+  in
+  let url =
+    Uri.of_string
+      [%string "https://api.bilibili.com/x/web-interface/view?bvid=%{bvid}"]
+  in
+  let%map.Deferred.Or_error view =
+    get_json ~headers ~url ~of_yojson:Api.View.t_of_yojson ()
+  in
+  view.title
 ;;
 
 (* highest bandwidth first, falling back to backup mirror urls *)

@@ -36,3 +36,8 @@ val search
   -> max_results:int
   -> string
   -> Search_result.t list Deferred.Or_error.t
+
+(** [get_title url] resolves a single video's title. It uses YouTube's fast
+    oEmbed endpoint, falling back to yt-dlp for videos oEmbed can't resolve
+    (private/age-restricted/deleted). *)
+val get_title : ?prog:File_path.Absolute.t -> string -> string Deferred.Or_error.t

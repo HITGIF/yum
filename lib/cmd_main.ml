@@ -33,7 +33,7 @@ let run_command =
          [%var_dash_name]
          File_path.Absolute.arg_type
          File_path.Absolute.to_string
-         ~default:Yt_dlp.default_prog
+         ~default:Youtube.default_prog
          ~doc:"PATH Path to the yt-dlp binary"
      and bilibili_sessdata = bilibili_sessdata_flag in
      fun () ->

@@ -10,75 +10,95 @@ let search_modal_custom_id = "yum_search_modal"
 let search_query_input_custom_id = "query"
 
 module Emoji = struct
-  type t =
-    | Yum
-    | Fearful
-    | Pleading_face
-    | Thinking
-    | Arrow_forward
-    | Arrow_up
-    | Arrow_double_up
-    | Fast_forward
-    | Repeat
-    | Stop_button
-    | Wave
-    | Mag
-    | Clipboard
-    | Regional_indicator_y
-    | Regional_indicator_b
-  [@@deriving sexp_of, to_string ~capitalize:"snake_case"]
+  module Unicode = struct
+    type t =
+      | Yum
+      | Fearful
+      | Pleading_face
+      | Thinking
+      | Arrow_forward
+      | Arrow_up
+      | Arrow_double_up
+      | Fast_forward
+      | Repeat
+      | Stop_button
+      | Wave
+      | Mag
+      | Clipboard
+      | Regional_indicator_y
+      | Regional_indicator_b
+      | U7a7a
+    [@@deriving sexp_of, to_string ~capitalize:"snake_case"]
 
-  let to_name = to_string
-  let to_string t = [%string ":%{to_name t}:"]
+    let to_name = to_string
+    let to_string t = [%string ":%{to_name t}:"]
 
-  let to_unicode = function
-    | Yum -> "😋"
-    | Fearful -> "😨"
-    | Pleading_face -> "🥺"
-    | Thinking -> "🤔"
-    | Arrow_forward -> "▶️"
-    | Arrow_up -> "⬆️"
-    | Arrow_double_up -> "⏫"
-    | Fast_forward -> "⏩"
-    | Repeat -> "🔁"
-    | Stop_button -> "⏹️"
-    | Wave -> "👋"
-    | Mag -> "🔍"
-    | Clipboard -> "📋"
-    | Regional_indicator_y -> "🇾"
-    | Regional_indicator_b -> "🇧"
-  ;;
-end
+    let to_unicode = function
+      | Yum -> "😋"
+      | Fearful -> "😨"
+      | Pleading_face -> "🥺"
+      | Thinking -> "🤔"
+      | Arrow_forward -> "▶️"
+      | Arrow_up -> "⬆️"
+      | Arrow_double_up -> "⏫"
+      | Fast_forward -> "⏩"
+      | Repeat -> "🔁"
+      | Stop_button -> "⏹️"
+      | Wave -> "👋"
+      | Mag -> "🔍"
+      | Clipboard -> "📋"
+      | Regional_indicator_y -> "🇾"
+      | Regional_indicator_b -> "🇧"
+      | U7a7a -> "🈳"
+    ;;
+  end
 
-module Custom_emoji = struct
-  (* A Discord custom (server/application) emoji, written in chat as "<:name:id>",
+  module Custom = struct
+    (* A Discord custom (server/application) emoji, written in chat as "<:name:id>",
      or "<a:name:id>" when animated. *)
+    type t =
+      { name : string
+      ; id : string
+      ; animated : bool
+      }
+    [@@deriving sexp_of]
+
+    let of_string raw =
+      let s = String.strip raw in
+      let s = String.chop_prefix_if_exists s ~prefix:"<" in
+      let s = String.chop_suffix_if_exists s ~suffix:">" in
+      let animated, body =
+        match String.chop_prefix s ~prefix:"a:" with
+        | Some body -> true, body
+        | None -> false, String.chop_prefix_if_exists s ~prefix:":"
+      in
+      match String.lsplit2 body ~on:':' with
+      | Some (name, id)
+        when (not (String.is_empty name))
+             && (not (String.is_empty id))
+             && String.for_all id ~f:Char.is_digit -> Ok { name; id; animated }
+      | _ ->
+        Or_error.error_string
+          [%string
+            "Invalid custom emoji %{raw}: expected the Discord form <:name:id> (or \
+             <a:name:id> for animated)"]
+    ;;
+
+    let to_markup { name; id; animated } =
+      if animated then [%string "<a:%{name}:%{id}>"] else [%string "<:%{name}:%{id}>"]
+    ;;
+  end
+
   type t =
-    { name : string
-    ; id : string
-    ; animated : bool
-    }
+    | Unicode of Unicode.t
+    | Custom of Custom.t
   [@@deriving sexp_of]
 
-  let of_string raw =
-    let s = String.strip raw in
-    let s = String.chop_prefix_if_exists s ~prefix:"<" in
-    let s = String.chop_suffix_if_exists s ~suffix:">" in
-    let animated, body =
-      match String.chop_prefix s ~prefix:"a:" with
-      | Some body -> true, body
-      | None -> false, String.chop_prefix_if_exists s ~prefix:":"
-    in
-    match String.lsplit2 body ~on:':' with
-    | Some (name, id)
-      when (not (String.is_empty name))
-           && (not (String.is_empty id))
-           && String.for_all id ~f:Char.is_digit -> Ok { name; id; animated }
-    | _ ->
-      Or_error.error_string
-        [%string
-          "Invalid custom emoji %{raw}: expected the Discord form <:name:id> (or \
-           <a:name:id> for animated)"]
+  (* How the emoji is written inside message text: the literal glyph for a
+     standard emoji, the [<:name:id>] form for a custom one. *)
+  let to_markup = function
+    | Unicode unicode -> Unicode.to_unicode unicode
+    | Custom custom -> Custom.to_markup custom
   ;;
 end
 
@@ -125,7 +145,7 @@ module Button = struct
     { style : Style.t
     ; action : Action.t
     ; label : string option
-    ; emoji : Emoji.t option
+    ; emoji : Emoji.Unicode.t option
     }
   [@@deriving sexp_of]
 end
@@ -135,7 +155,7 @@ module Select = struct
     type t =
       { label : string
       ; description : string option
-      ; emoji : [ `Unicode of Emoji.t | `Custom of Custom_emoji.t ] option
+      ; emoji : Emoji.t option
       ; action : Action.t
       }
     [@@deriving sexp_of]
@@ -169,8 +189,8 @@ let send_components_message t components =
 ;;
 
 let content ?code ?emoji ?emoji_end message =
-  let emoji = Option.map emoji ~f:Emoji.to_string in
-  let emoji_end = Option.map emoji_end ~f:Emoji.to_string in
+  let emoji = Option.map emoji ~f:Emoji.Unicode.to_string in
+  let emoji_end = Option.map emoji_end ~f:Emoji.Unicode.to_string in
   let message =
     match message, code with
     | None, _ -> None
@@ -196,7 +216,10 @@ let send_message' ?buttons ?code ?emoji ?emoji_end t message =
     let button { Button.style; action; label; emoji } =
       let emoji =
         let%map.Option emoji in
-        { Partial_emoji.name = Emoji.to_unicode emoji; id = None; animated = None }
+        { Partial_emoji.name = Emoji.Unicode.to_unicode emoji
+        ; id = None
+        ; animated = None
+        }
       in
       Button
         { style = Button.Style.to_int style
@@ -230,9 +253,12 @@ let send_select ?emoji ?placeholder t message options =
     List.map options ~f:(fun { Select.Option.label; description; emoji; action } ->
       let emoji =
         Option.map emoji ~f:(function
-          | `Unicode emoji ->
-            { Partial_emoji.name = Emoji.to_unicode emoji; id = None; animated = None }
-          | `Custom { Custom_emoji.name; id; animated } ->
+          | Emoji.Unicode emoji ->
+            { Partial_emoji.name = Emoji.Unicode.to_unicode emoji
+            ; id = None
+            ; animated = None
+            }
+          | Emoji.Custom { name; id; animated } ->
             { Partial_emoji.name; id = Some id; animated = Some animated })
       in
       { Select_option.label; value = Action.to_custom_id action; description; emoji })
@@ -310,8 +336,10 @@ let register_slash_commands ~auth_token ~application_id commands =
 ;;
 
 module%test _ = struct
-  let%expect_test "Custom_emoji.of_string" =
-    let test s = Custom_emoji.of_string s |> [%sexp_of: Custom_emoji.t Or_error.t] |> print_s in
+  let%expect_test "Emoji.Custom.of_string" =
+    let test s =
+      Emoji.Custom.of_string s |> [%sexp_of: Emoji.Custom.t Or_error.t] |> print_s
+    in
     test "<:youtube:123456789>";
     test "<a:loading:987654321>";
     test "bilibili:42";
