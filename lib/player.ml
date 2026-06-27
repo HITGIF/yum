@@ -54,6 +54,10 @@ let playing t = t.playing
 let voice_channel t = t.voice_channel
 let next_song t = Songs.peak t.songs
 
+(* The explicitly-requested songs waiting to play, in order. Excludes the
+   currently-playing song and the idle-shuffle fallback. *)
+let queued t = Deque.to_list t.songs.requested
+
 let close
   { ffmpeg_path = _
   ; yt_dlp_path = _
@@ -242,6 +246,11 @@ let rec play_loop ({ guild_id; _ } as t) =
             ; emoji = Some Arrow_up
             }
           ; { style = Secondary; action = Search; label = Some "Search"; emoji = Some Mag }
+          ; { style = Secondary
+            ; action = Queue
+            ; label = Some "Queue"
+            ; emoji = Some Clipboard
+            }
           ]
         t.agent
         None

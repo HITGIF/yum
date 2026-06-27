@@ -137,6 +137,39 @@ let handle_skip ~state ~guild_id ~agent how_to_respond =
     return ()
 ;;
 
+let handle_queue ~state ~guild_id ~agent how_to_respond =
+  match State.player state ~guild_id with
+  | None -> respond ~emoji_end:Thinking agent how_to_respond "Not playing"
+  | Some player ->
+    let now_playing =
+      match Player.playing player with
+      | Some song -> [%string "Now playing: <%{Song.to_url song}>"]
+      | None -> "Nothing playing"
+    in
+    let queued = Player.queued player in
+    let max_shown = 20 in
+    (* Wrap URLs in <...> so Discord doesn't unfurl a wall of link embeds. *)
+    let lines =
+      List.take queued max_shown
+      |> List.mapi ~f:(fun i song -> [%string "%{i + 1#Int}. <%{Song.to_url song}>"])
+    in
+    let overflow =
+      match List.length queued - max_shown with
+      | n when n > 0 -> [ [%string "…and %{n#Int} more"] ]
+      | _ -> []
+    in
+    let up_next =
+      match queued with
+      | [] -> [ "Queue is empty" ]
+      | _ -> ("Up next:" :: lines) @ overflow
+    in
+    respond
+      ~emoji:Clipboard
+      agent
+      how_to_respond
+      (String.concat (now_playing :: up_next) ~sep:"\n")
+;;
+
 let handle_play ?url ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond =
   match%bind
     player_or_join_user ~state ~gateway ~agent ~guild_id ~user_id how_to_respond
@@ -224,10 +257,19 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id how_to_respond comm
   | Stop -> handle_stop ~state ~gateway ~agent ~guild_id how_to_respond
   | Skip -> handle_skip ~state ~guild_id ~agent how_to_respond
   | Play song ->
-    handle_play ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
+    handle_play
+      ~url:(Song.to_url song)
+      ~state
+      ~gateway
+      ~agent
+      ~guild_id
+      ~user_id
+      ~song
+      how_to_respond
   | Play_now song ->
     handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
   | Search { query } -> handle_search ~state ~agent ~query how_to_respond
+  | Queue -> handle_queue ~state ~guild_id ~agent how_to_respond
   | Play_list playlist ->
     (match Song.Playlist.to_src playlist with
      | `Youtube url ->
@@ -361,6 +403,7 @@ let handle_events ~(state : State.t) ~gateway event =
       | Play_now song ->
         handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respond
       | Search -> Agent.show_search_modal agent ~interaction_id ~interaction_token
+      | Queue -> handle_queue ~state ~guild_id ~agent how_to_respond
       | Unknown _ -> return ()
     in
     (* A select keeps the chosen option highlighted, so re-picking it fires no

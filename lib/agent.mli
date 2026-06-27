@@ -44,6 +44,7 @@ module Action : sig
     | Play of Song.t
     | Play_now of Song.t
     | Search
+    | Queue
     | Unknown of string
 
   val of_custom_id : string -> t

@@ -8,6 +8,7 @@ type t =
   | Play_now of Song.t
   | Play_list of Song.Playlist.t
   | Search of { query : string }
+  | Queue
   | Ping
   | Help
 [@@deriving variants]

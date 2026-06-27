@@ -30,3 +30,7 @@ val skip : t -> unit
 val started : t -> bool
 val playing : t -> Song.t option
 val next_song : t -> Song.t
+
+(** The explicitly-requested songs waiting to play, in order (excludes the
+    currently-playing song and the idle-shuffle fallback). *)
+val queued : t -> Song.t list

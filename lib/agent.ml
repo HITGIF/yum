@@ -90,6 +90,7 @@ module Action = struct
     | Play of Song.t
     | Play_now of Song.t
     | Search
+    | Queue
     | Unknown of string
   [@@deriving sexp]
 

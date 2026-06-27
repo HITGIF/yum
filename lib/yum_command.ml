@@ -9,6 +9,7 @@ type t =
   | Play_now of Song.t
   | Play_list of Song.Playlist.t
   | Search of { query : string }
+  | Queue
   | Ping
   | Help
 [@@deriving variants]
@@ -196,8 +197,15 @@ let entries : Entry.t list =
     ~search:
       (search_entry
          ~slash_name:"search"
-         ~text_names:[ "search" ]
+         ~text_names:[ "search"; "f" ]
          ~description:"Search YouTube and Bilibili and pick a song to play"
+       |> f)
+    ~queue:
+      (no_options
+         ~slash_name:"queue"
+         ~text_names:[ "queue" ]
+         ~description:"Show the songs waiting in the queue"
+         ~command:Queue
        |> f)
   |> List.rev
 ;;
@@ -289,7 +297,8 @@ module%test _ = struct
       [ play | p ] <video-url>           : queue a song to play next
       [ play! | p! ] <video-url>         : play a song immediately, skipping the current
       [ playlist | pl ] <playlist-url>   : queue all songs in a playlist
-      [ search ] <query>                 : search YouTube and Bilibili and pick a song to play
+      [ search | f ] <query>             : search YouTube and Bilibili and pick a song to play
+      [ queue ]                          : show the songs waiting in the queue
       [ ping ]                           : ping yum for a pong
       [ help | h ]                       : print help text
       ```
