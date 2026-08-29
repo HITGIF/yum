@@ -56,35 +56,25 @@ module Emoji = struct
   module Custom = struct
     (* A Discord custom (server/application) emoji, written in chat as "<:name:id>",
      or "<a:name:id>" when animated. *)
-    type t =
+    type raw =
       { name : string
       ; id : string
       ; animated : bool
       }
     [@@deriving sexp_of]
 
-    let of_string raw =
-      let s = String.strip raw in
-      let s = String.chop_prefix_if_exists s ~prefix:"<" in
-      let s = String.chop_suffix_if_exists s ~suffix:">" in
-      let animated, body =
-        match String.chop_prefix s ~prefix:"a:" with
-        | Some body -> true, body
-        | None -> false, String.chop_prefix_if_exists s ~prefix:":"
-      in
-      match String.lsplit2 body ~on:':' with
-      | Some (name, id)
-        when (not (String.is_empty name))
-             && (not (String.is_empty id))
-             && String.for_all id ~f:Char.is_digit -> Ok { name; id; animated }
-      | _ ->
-        Or_error.error_string
-          [%string
-            "Invalid custom emoji %{raw}: expected the Discord form <:name:id> (or \
-             <a:name:id> for animated)"]
+    type t =
+      | Youtube
+      | Bilibili
+    [@@deriving sexp_of]
+
+    let to_raw = function
+      | Youtube -> { name = "Youtubelogo"; id = "1520358723359342655"; animated = false }
+      | Bilibili -> { name = "bilibili"; id = "1543218837552500746"; animated = false }
     ;;
 
-    let to_markup { name; id; animated } =
+    let to_markup t =
+      let { name; id; animated } = to_raw t in
       if animated then [%string "<a:%{name}:%{id}>"] else [%string "<:%{name}:%{id}>"]
     ;;
   end
@@ -258,7 +248,8 @@ let send_select ?emoji ?placeholder t message options =
             ; id = None
             ; animated = None
             }
-          | Emoji.Custom { name; id; animated } ->
+          | Emoji.Custom custom ->
+            let%tydi { name; id; animated } = Emoji.Custom.to_raw custom in
             { Partial_emoji.name; id = Some id; animated = Some animated })
       in
       { Select_option.label; value = Action.to_custom_id action; description; emoji })
@@ -334,24 +325,3 @@ let register_slash_commands ~auth_token ~application_id commands =
     commands
   |> Deferred.ignore_m
 ;;
-
-module%test _ = struct
-  let%expect_test "Emoji.Custom.of_string" =
-    let test s =
-      Emoji.Custom.of_string s |> [%sexp_of: Emoji.Custom.t Or_error.t] |> print_s
-    in
-    test "<:youtube:123456789>";
-    test "<a:loading:987654321>";
-    test "bilibili:42";
-    test "🇾";
-    [%expect
-      {|
-      (Ok ((name youtube) (id 123456789) (animated false)))
-      (Ok ((name loading) (id 987654321) (animated true)))
-      (Ok ((name bilibili) (id 42) (animated false)))
-      (Error
-       "Invalid custom emoji \240\159\135\190: expected the Discord form <:name:id> (or <a:name:id> for animated)")
-      |}];
-    return ()
-  ;;
-end

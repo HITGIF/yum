@@ -6,6 +6,18 @@ open! Async
 let max_results = 25
 let max_field_length = 100
 
+(* We ask each platform for the same, fixed number of results rather than letting
+   one of them fill the whole menu: a platform's result count is driven by its own
+   catalogue and ranking, not by how relevant its hits are to us, so an unbounded
+   merge regularly ended up all-YouTube or all-Bilibili. Two evenly-sized slates,
+   merged by our own relevance score, keep both sources on screen.
+
+   [2 * per_source_results] deliberately overshoots [max_results]: relevance then
+   picks the menu out of a 30-candidate pool rather than a 25-candidate one. The
+   final cap only ever trims the lowest-scoring tail, and since each source
+   contributes at most 15, neither can take more than 15 of the 25 slots. *)
+let per_source_results = 15
+
 module Result = struct
   type t =
     { song : Song.t
@@ -57,7 +69,9 @@ let description parts =
 (* A missing duration means the entry isn't a playable video (channel, playlist,
    mix, ...), so drop it. *)
 let search_youtube ~youtube ~query =
-  let%map.Deferred.Or_error results = Youtube.search youtube ~max_results query in
+  let%map.Deferred.Or_error results =
+    Youtube.search youtube ~max_results:per_source_results query
+  in
   List.filter_map
     results
     ~f:(fun { Youtube.Search_result.id; title; uploader; duration } ->
@@ -69,7 +83,9 @@ let search_youtube ~youtube ~query =
 ;;
 
 let search_bilibili ~sessdata ~query =
-  let%map.Deferred.Or_error results = Bilibili.search ?sessdata ~max_results query in
+  let%map.Deferred.Or_error results =
+    Bilibili.search ?sessdata ~max_results:per_source_results query
+  in
   List.filter_map
     results
     ~f:(fun { Bilibili.Search_result.bvid; title; author; duration } ->
@@ -80,7 +96,8 @@ let search_bilibili ~sessdata ~query =
       })
 ;;
 
-(* Interleave so both platforms are represented even when one returns far more. *)
+(* Interleave the two slates so they start out evenly mixed; this is also what
+   decides ties once they are sorted by relevance below. *)
 let rec interleave xs ys =
   match xs, ys with
   | [], rest | rest, [] -> rest
@@ -91,8 +108,8 @@ let rec interleave xs ys =
    comparable across sources. The one signal we can compute uniformly is how well
    the query text matches a result, so we score each result by query/title (and
    author) overlap and sort by it. The score is coarse on purpose: a [stable_sort]
-   then keeps the original interleaving among equally-matching results, so
-   platform order still breaks ties and both sources stay represented. *)
+   then keeps the original interleaving among equally-matching results, so each
+   platform's own ranking still breaks ties. *)
 let relevance ~query { Result.label; description; _ } =
   let haystack = String.lowercase (label ^ " " ^ description) in
   let query = String.lowercase (String.strip query) in
@@ -117,18 +134,19 @@ let rank_by_relevance ~query results =
     Float.compare (relevance ~query b) (relevance ~query a))
 ;;
 
-(* Search YouTube and Bilibili concurrently and merge. One source failing (e.g.
-   Bilibili risk control) doesn't fail the whole search — we return the other's
-   results; only if both fail do we surface an error. *)
+let merge ~query youtube bilibili =
+  interleave youtube bilibili |> rank_by_relevance ~query |> Fn.flip List.take max_results
+;;
+
+(* Search YouTube and Bilibili concurrently, then merge the two equally-sized
+   slates by our own relevance score. One source failing (e.g. Bilibili risk
+   control) doesn't fail the whole search — we return the other's results; only if
+   both fail do we surface an error. *)
 let search ?bilibili_sessdata ~youtube ~query () =
   let%map.Deferred youtube_results = search_youtube ~youtube ~query
   and bilibili = search_bilibili ~sessdata:bilibili_sessdata ~query in
   match youtube_results, bilibili with
-  | Ok youtube, Ok bilibili ->
-    Ok
-      (interleave youtube bilibili
-       |> rank_by_relevance ~query
-       |> fun r -> List.take r max_results)
+  | Ok youtube, Ok bilibili -> Ok (merge ~query youtube bilibili)
   | Ok results, Error _ | Error _, Ok results -> Ok (List.take results max_results)
   | Error youtube, Error bilibili -> Error (Error.of_list [ youtube; bilibili ])
 ;;
@@ -174,6 +192,33 @@ module%test _ = struct
       random video
       another clip
       |}];
+    return ()
+  ;;
+
+  let%expect_test "merge keeps both sources even when one matches the query better" =
+    let slate song n ~label =
+      List.init n ~f:(fun i -> { Result.song; label = sprintf label i; description = "" })
+    in
+    (* The pathological case: a Chinese query matches every Bilibili title and no
+       YouTube one. Bilibili takes its full 15 slots, but the cap trims its own tail
+       rather than YouTube's slate, so YouTube still gets the remaining 10. *)
+    let youtube = slate (Song.of_youtube_string "y") per_source_results ~label:"yt %d" in
+    let bilibili =
+      slate (Song.of_bilibili_string "b") per_source_results ~label:"晴天 %d"
+    in
+    let merged = merge ~query:"晴天" youtube bilibili in
+    let count source =
+      List.count merged ~f:(fun { Result.song; _ } ->
+        Poly.equal (Song.source song) source)
+    in
+    printf
+      "total=%d bilibili=%d youtube=%d first=%s last=%s\n"
+      (List.length merged)
+      (count `Bilibili)
+      (count `Youtube)
+      (List.hd_exn merged).label
+      (List.last_exn merged).label;
+    [%expect {| total=25 bilibili=15 youtube=10 first=晴天 0 last=yt 9 |}];
     return ()
   ;;
 end

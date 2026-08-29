@@ -29,14 +29,8 @@ module Emoji : sig
   (** A Discord custom (server/application) emoji. *)
   module Custom : sig
     type t =
-      { name : string
-      ; id : string
-      ; animated : bool
-      }
-
-    (** [of_string s] parses the Discord chat form ["<:name:id>"] (or ["<a:name:id>"] for
-        animated). *)
-    val of_string : string -> t Or_error.t
+      | Youtube
+      | Bilibili
   end
 
   type t =

@@ -77,16 +77,10 @@ module State = struct
   ;;
 end
 
-(* Emoji that tag search results by source. To use a custom server (guild) emoji,
-   swap the line to [Custom (custom "<:name:id>")] — get the "<:name:id>" string
-   by typing "\:emojiname:" in Discord (animated emoji render as "<a:name:id>").
-   The bot must be a member of a guild that has the emoji. *)
-let custom emoji = Agent.Emoji.Custom.of_string emoji |> Or_error.ok_exn
-
 let source_emoji song : Agent.Emoji.t =
   match Song.source song with
-  | `Youtube -> Custom (custom "<:Youtubelogo:1520358723359342655>")
-  | `Bilibili -> Unicode Regional_indicator_b
+  | `Youtube -> Custom Youtube
+  | `Bilibili -> Custom Bilibili
 ;;
 
 let respond ?emoji ?emoji_end agent how_to_respond message =
