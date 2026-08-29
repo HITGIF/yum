@@ -56,10 +56,8 @@ let description parts =
 
 (* A missing duration means the entry isn't a playable video (channel, playlist,
    mix, ...), so drop it. *)
-let search_youtube ~yt_dlp_path ~query =
-  let%map.Deferred.Or_error results =
-    Youtube.search ~prog:yt_dlp_path ~max_results query
-  in
+let search_youtube ~youtube ~query =
+  let%map.Deferred.Or_error results = Youtube.search youtube ~max_results query in
   List.filter_map
     results
     ~f:(fun { Youtube.Search_result.id; title; uploader; duration } ->
@@ -122,10 +120,10 @@ let rank_by_relevance ~query results =
 (* Search YouTube and Bilibili concurrently and merge. One source failing (e.g.
    Bilibili risk control) doesn't fail the whole search — we return the other's
    results; only if both fail do we surface an error. *)
-let search ?bilibili_sessdata ~yt_dlp_path ~query () =
-  let%map.Deferred youtube = search_youtube ~yt_dlp_path ~query
+let search ?bilibili_sessdata ~youtube ~query () =
+  let%map.Deferred youtube_results = search_youtube ~youtube ~query
   and bilibili = search_bilibili ~sessdata:bilibili_sessdata ~query in
-  match youtube, bilibili with
+  match youtube_results, bilibili with
   | Ok youtube, Ok bilibili ->
     Ok
       (interleave youtube bilibili

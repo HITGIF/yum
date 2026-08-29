@@ -5,7 +5,7 @@ type t
 
 val create
   :  ffmpeg_path:File_path.Absolute.t
-  -> yt_dlp_path:File_path.Absolute.t
+  -> youtube:Youtube.t
   -> guild_id:Discord.Model.Guild_id.t
   -> agent:Agent.t
   -> song_title:Song_title.t

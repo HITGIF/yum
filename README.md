@@ -59,25 +59,30 @@ wget -O videos.txt https://raw.githubusercontent.com/HITGIF/yum/refs/heads/main/
 ## Run
 ### CLI
 ```sh
-./yum -discord-bot-token YOUR_DISCORD_BOT_TOKEN -youtube-songs YOUR_SONGS_FILE
+./yum run -discord-bot-token YOUR_DISCORD_BOT_TOKEN -youtube-songs YOUR_SONGS_FILE
 ```
 #### Options
 ```
-😋 A Discord music player bot.
+😋 Run the Discord music player bot.
 
-  yum
+  yum run
 
 === flags ===
 
   -discord-bot-token STRING  . Discord bot auth token
   -youtube-songs FILE        . Youtube songs file
+  [-bilibili-sessdata STRING]
+                             . SESSDATA cookie of a logged-in Bilibili account,
+                               used to clear search risk control (required to
+                               search from a datacenter/VPS IP)
   [-ffmpeg-path PATH]        . Path to the ffmpeg binary (default:
                                /usr/bin/ffmpeg)
   [-log-level LEVEL]         . The log level (can be: Debug, Error, Info)
+  [-yt-dlp-cookies FILE]     . Netscape-format cookie file passed to yt-dlp via
+                               --cookies (e.g. to download age-restricted videos
+                               or clear bot checks)
   [-yt-dlp-path PATH]        . Path to the yt-dlp binary (default:
                                /usr/bin/yt-dlp)
-  [-build-info]              . print info about this build and exit
-  [-version]                 . print the version of this build and exit
   [-help], -?                . print this help text and exit
 ```
 

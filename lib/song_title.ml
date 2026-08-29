@@ -3,15 +3,15 @@ open! Async
 open! Common
 
 type t =
-  { yt_dlp_path : File_path.Absolute.t
+  { youtube : Youtube.t
   ; bilibili_sessdata : string option
   ; (* Keyed on the canonical URL so the same song shares one entry. The cached
        value is the in-flight (or settled) fetch, so concurrent requests dedupe. *)
     cache : string Or_error.t Deferred.t String.Table.t
   }
 
-let create ~yt_dlp_path ~bilibili_sessdata =
-  { yt_dlp_path; bilibili_sessdata; cache = String.Table.create () }
+let create ~youtube ~bilibili_sessdata =
+  { youtube; bilibili_sessdata; cache = String.Table.create () }
 ;;
 
 let fetch t song =
@@ -20,9 +20,8 @@ let fetch t song =
   [%log.info [%here] "Fetching title" (url : string)];
   let%map result =
     match Song.to_src song with
-    | `Youtube url -> Youtube.get_title ~prog:t.yt_dlp_path url
-    | `Bilibili (bvid, _part) ->
-      Bilibili.get_title ?sessdata:t.bilibili_sessdata ~bvid ()
+    | `Youtube url -> Youtube.get_title t.youtube url
+    | `Bilibili (bvid, _part) -> Bilibili.get_title ?sessdata:t.bilibili_sessdata ~bvid ()
   in
   let elapsed = Time_ns.diff (Time_ns.now ()) start in
   (match result with

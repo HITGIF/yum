@@ -4,6 +4,23 @@ open! Common
 
 let default_prog = File_path.Absolute.of_string "/usr/bin/yt-dlp"
 
+type t =
+  { prog : File_path.Absolute.t
+  ; cookies : File_path.t option
+  }
+
+let create ?(prog = default_prog) ?cookies () = { prog; cookies }
+
+let with_cookies t args =
+  match t.cookies with
+  | None -> args
+  | Some cookies -> "--cookies" :: File_path.to_string cookies :: args
+;;
+
+let run t ~args =
+  Process.run ~prog:(File_path.Absolute.to_string t.prog) ~args:(with_cookies t args) ()
+;;
+
 let default_download_args =
   [ "--quiet"; "--no-warnings"; "--no-progress"; "--no-continue" ]
   @ List.concat
@@ -17,22 +34,13 @@ let default_download_args =
 
 let default_get_playlist_args = [ "--get-id"; "--flat-playlist" ]
 
-let download
-  ?cancellation_token
-  ?on_finish
-  ?(prog = default_prog)
-  ?(args = default_download_args)
-  url
-  =
-  let args = args @ [ url ] in
-  Stream_process.stream ?cancellation_token ?on_finish ~prog ~args ()
+let download ?cancellation_token ?on_finish ?(args = default_download_args) t url =
+  let args = with_cookies t (args @ [ url ]) in
+  Stream_process.stream ?cancellation_token ?on_finish ~prog:t.prog ~args ()
 ;;
 
-let get_playlist ?(prog = default_prog) ?(args = default_get_playlist_args) url =
-  let args = args @ [ url ] in
-  let%map.Deferred.Or_error songs =
-    Process.run ~prog:(File_path.Absolute.to_string prog) ~args ()
-  in
+let get_playlist ?(args = default_get_playlist_args) t url =
+  let%map.Deferred.Or_error songs = run t ~args:(args @ [ url ]) in
   String.split_lines songs |> List.map ~f:Song.of_youtube_string
 ;;
 
@@ -73,18 +81,12 @@ end
 (* [%(id)s] etc. are yt-dlp output template fields; tab-separated so titles
    containing arbitrary characters stay on a single parsable line. *)
 let default_search_args =
-  [ "--flat-playlist"
-  ; "--print"
-  ; "%(id)s\t%(title)s\t%(uploader)s\t%(duration_string)s"
-  ]
+  [ "--flat-playlist"; "--print"; "%(id)s\t%(title)s\t%(uploader)s\t%(duration_string)s" ]
 ;;
 
-let search ?(prog = default_prog) ~max_results query =
+let search t ~max_results query =
   let url = [%string "ytsearch%{max_results#Int}:%{query}"] in
-  let args = default_search_args @ [ url ] in
-  let%map.Deferred.Or_error output =
-    Process.run ~prog:(File_path.Absolute.to_string prog) ~args ()
-  in
+  let%map.Deferred.Or_error output = run t ~args:(default_search_args @ [ url ]) in
   String.split_lines output |> List.filter_map ~f:Search_result.of_line
 ;;
 
@@ -96,11 +98,8 @@ let default_get_title_args =
    [--skip-download], which only skips the media file): it fetches the watch
    page, runs the JS player, and resolves every format — ~12s per video, where
    the download was never the bottleneck. *)
-let get_title_via_yt_dlp ?(prog = default_prog) url =
-  let args = default_get_title_args @ [ url ] in
-  let%map.Deferred.Or_error output =
-    Process.run ~prog:(File_path.Absolute.to_string prog) ~args ()
-  in
+let get_title_via_yt_dlp t url =
+  let%map.Deferred.Or_error output = run t ~args:(default_get_title_args @ [ url ]) in
   String.strip output
 ;;
 
@@ -130,10 +129,10 @@ let get_title_via_oembed url =
             (url : string)])
 ;;
 
-let get_title ?prog url =
+let get_title t url =
   match%bind get_title_via_oembed url with
   | Ok _ as title -> return title
-  | Error _ -> get_title_via_yt_dlp ?prog url
+  | Error _ -> get_title_via_yt_dlp t url
 ;;
 
 module%test _ = struct

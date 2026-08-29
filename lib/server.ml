@@ -18,20 +18,20 @@ module State = struct
     ; players : Player.t Guild_id.Table.t
     ; idle_songs : Song.t Nonempty_list.t
     ; ffmpeg_path : File_path.Absolute.t
-    ; yt_dlp_path : File_path.Absolute.t
+    ; youtube : Youtube.t
     ; bilibili_sessdata : string option
     ; song_title : Song_title.t
     ; leave_timer_cancellation_tokens : unit Ivar.t Guild_id.Table.t
     }
 
-  let create ~auth_token ~idle_songs ~ffmpeg_path ~yt_dlp_path ~bilibili_sessdata () =
+  let create ~auth_token ~idle_songs ~ffmpeg_path ~youtube ~bilibili_sessdata () =
     { auth_token
     ; players = Guild_id.Table.create ()
     ; idle_songs
     ; ffmpeg_path
-    ; yt_dlp_path
+    ; youtube
     ; bilibili_sessdata
-    ; song_title = Song_title.create ~yt_dlp_path ~bilibili_sessdata
+    ; song_title = Song_title.create ~youtube ~bilibili_sessdata
     ; leave_timer_cancellation_tokens = Guild_id.Table.create ()
     }
   ;;
@@ -60,7 +60,7 @@ module State = struct
         let player =
           Player.create
             ~ffmpeg_path:t.ffmpeg_path
-            ~yt_dlp_path:t.yt_dlp_path
+            ~youtube:t.youtube
             ~guild_id
             ~agent
             ~song_title:t.song_title
@@ -254,7 +254,7 @@ let handle_search ~(state : State.t) ~agent ~query how_to_respond =
   match%bind
     Search.search
       ?bilibili_sessdata:state.bilibili_sessdata
-      ~yt_dlp_path:state.yt_dlp_path
+      ~youtube:state.youtube
       ~query
       ()
   with
@@ -305,7 +305,7 @@ let handle_command ~state ~gateway ~agent ~guild_id ~user_id how_to_respond comm
   | Play_list playlist ->
     (match Song.Playlist.to_src playlist with
      | `Youtube url ->
-       (match%bind Youtube.get_playlist url with
+       (match%bind Youtube.get_playlist state.youtube url with
         | Error error ->
           let error = [%sexp_of: Error.t] error |> Sexp.to_string_hum in
           Agent.send_message ~code:() ~emoji:Fearful agent error
@@ -523,7 +523,7 @@ let run
   ~discord_bot_token:auth_token
   ~youtube_songs
   ~ffmpeg_path
-  ~yt_dlp_path
+  ~youtube
   ~bilibili_sessdata
   ()
   =
@@ -535,7 +535,7 @@ let run
       ~auth_token
       ~idle_songs:youtube_songs
       ~ffmpeg_path
-      ~yt_dlp_path
+      ~youtube
       ~bilibili_sessdata
       ()
   in

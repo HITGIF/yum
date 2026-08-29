@@ -37,7 +37,7 @@ end
 
 type t =
   { ffmpeg_path : File_path.Absolute.t
-  ; yt_dlp_path : File_path.Absolute.t
+  ; youtube : Youtube.t
   ; guild_id : Guild_id.t
   ; mutable agent : Agent.t
   ; song_title : Song_title.t
@@ -61,7 +61,7 @@ let queued t = Deque.to_list t.songs.requested
 
 let close
   { ffmpeg_path = _
-  ; yt_dlp_path = _
+  ; youtube = _
   ; guild_id
   ; agent = _
   ; song_title = _
@@ -134,7 +134,7 @@ let write_frames t frames_reader ~cancellation_token =
   Deferred.Or_error.ok_unit
 ;;
 
-let play ~cancellation_token ({ guild_id; yt_dlp_path; ffmpeg_path; _ } as t) song =
+let play ~cancellation_token ({ guild_id; youtube; ffmpeg_path; _ } as t) song =
   let%with attempt = Deferred.repeat_until_finished (Attempt.create ~max:3 ()) in
   let should_retry = Ivar.create () in
   let process_result ~tag = function
@@ -171,7 +171,7 @@ let play ~cancellation_token ({ guild_id; yt_dlp_path; ffmpeg_path; _ } as t) so
       match Song.to_src song with
       | `Youtube url ->
         let%with on_finish = with_on_finish ~tag:"yt-dlp" in
-        Youtube.download ~prog:yt_dlp_path ~cancellation_token ~on_finish url
+        Youtube.download ~cancellation_token ~on_finish youtube url
       | `Bilibili (video, part) -> Bilibili.download ~video ~part
     in
     let encode reader =
@@ -309,7 +309,7 @@ let skip { guild_id; skip; _ } =
 
 let create
   ~ffmpeg_path
-  ~yt_dlp_path
+  ~youtube
   ~guild_id
   ~agent
   ~song_title
@@ -318,7 +318,7 @@ let create
   ~frames_writer
   =
   { ffmpeg_path
-  ; yt_dlp_path
+  ; youtube
   ; guild_id
   ; agent
   ; song_title
