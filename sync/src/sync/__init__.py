@@ -25,7 +25,7 @@ def sync(client_secrets_file, output):
     flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
         client_secrets_file, scopes
     )
-    credentials = flow.run_local_server(port=8088)
+    credentials = flow.run_local_server(port=8089)
     youtube = googleapiclient.discovery.build(
         api_service_name, api_version, credentials=credentials
     )
@@ -52,5 +52,5 @@ def sync(client_secrets_file, output):
     print("Done")
 
 
-if __name__ == "__main__":
+def main() -> None:
     cli()

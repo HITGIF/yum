@@ -1,0 +1,21 @@
+[project]
+name = "sync"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "hitgif", email = "me@anhai.wang" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.5.0",
+    "google-api-python-client>=2.199.0",
+    "google-auth-oauthlib>=1.4.1",
+]
+
+[project.scripts]
+sync = "sync:main"
+
+[build-system]
+requires = ["uv_build>=0.12.7,<0.13.0"]
+build-backend = "uv_build"

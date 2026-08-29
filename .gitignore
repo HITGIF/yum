@@ -44,3 +44,4 @@ yum
 out.opus
 **/secret.json
 _build_check/
+**/*.pyc
