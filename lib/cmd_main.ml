@@ -65,27 +65,52 @@ let search_test_command =
          [%var_dash_name]
          ~doc:"N Maximum number of results (default 5)"
          (optional_with_default 5 int)
+     and repeat =
+       flag
+         [%var_dash_name]
+         ~doc:
+           "N Run the search N times and report how many succeeded. Risk control is \
+            intermittent, so a single run tells you very little (default 1)"
+         (optional_with_default 1 int)
      and sessdata = bilibili_sessdata_flag
      and query = anon ("KEYWORD" %: string) in
      fun () ->
-       match%map Bilibili.search ?sessdata ~max_results query with
-       | Ok results ->
+       let print_results results =
          printf
            "✅ Bilibili search works from this host: %d result(s)\n"
            (List.length results);
-         List.iter results ~f:(fun { bvid; title; author; duration } ->
-           printf
-             "  %-12s  %-7s  %-16s  %s\n"
-             bvid
-             (Option.value duration ~default:"-")
-             (Option.value author ~default:"-")
-             title);
-         Ok ()
-       | Error error ->
+         List.iter
+           results
+           ~f:(fun { Bilibili.Search_result.bvid; title; author; duration } ->
+             printf
+               "  %-12s  %-7s  %-16s  %s\n"
+               bvid
+               (Option.value duration ~default:"-")
+               (Option.value author ~default:"-")
+               title)
+       in
+       (* Sequential on purpose: the point is to sample risk control over time the
+          way real searches arrive, and to let the runs share one primed session. *)
+       let%map outcomes =
+         Deferred.List.init repeat ~how:`Sequential ~f:(fun (_ : int) ->
+           Bilibili.search ?sessdata ~max_results query)
+       in
+       Option.iter (List.find_map outcomes ~f:Result.ok) ~f:print_results;
+       if repeat > 1
+       then
+         printf
+           "\n%d/%d searches succeeded\n"
+           (List.count outcomes ~f:Or_error.is_ok)
+           repeat;
+       match List.filter_map outcomes ~f:Result.error with
+       | errors when List.length errors = repeat ->
          eprintf
-           "❌ Bilibili search FAILED from this host. The IP is most likely geo-blocked / \
-            risk-controlled; try a mainland-China host.\n";
-         Error error)
+           "❌ Bilibili search FAILED. Risk control here is rate-based on the IP and \
+            account rather than a fixed property of the host: a valid \
+            -bilibili-sessdata cookie helps most, and a block usually clears on its \
+            own after a pause.\n";
+         Error (Error.of_list errors)
+       | _ -> Ok ())
 ;;
 
 let command =

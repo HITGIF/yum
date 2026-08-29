@@ -66,34 +66,80 @@ let description parts =
   List.filter_map parts ~f:Fn.id |> String.concat ~sep:" · " |> truncate
 ;;
 
+(* The duration filter below is a silent-failure risk: a result with no duration
+   is dropped, so if a platform ever stops populating that field its entire slate
+   disappears and the search just looks empty. Accounting for returned-vs-kept on
+   each source is what tells "the platform gave us nothing" apart from "we threw
+   everything the platform gave us away". *)
+let log_source ~source ~query ~returned ~playable ~unplayable =
+  [%log.info
+    [%here]
+      "Search source finished"
+      (source : string)
+      (query : string)
+      (returned : int)
+      (playable : int)];
+  if not (List.is_empty unplayable)
+  then
+    [%log.debug
+      [%here]
+        "Dropped search results with no duration"
+        (source : string)
+        (unplayable : Sexp.t list)]
+;;
+
 (* A missing duration means the entry isn't a playable video (channel, playlist,
    mix, ...), so drop it. *)
 let search_youtube ~youtube ~query =
   let%map.Deferred.Or_error results =
     Youtube.search youtube ~max_results:per_source_results query
   in
-  List.filter_map
-    results
-    ~f:(fun { Youtube.Search_result.id; title; uploader; duration } ->
-      let%map.Option duration in
-      { Result.song = Song.of_youtube_string id
-      ; label = label ~fallback:id title
-      ; description = description [ uploader; Some duration ]
-      })
+  let playable, unplayable =
+    List.partition_map
+      results
+      ~f:(fun ({ Youtube.Search_result.id; title; uploader; duration } as result) ->
+        match duration with
+        | None -> Second ([%sexp_of: Youtube.Search_result.t] result)
+        | Some duration ->
+          First
+            { Result.song = Song.of_youtube_string id
+            ; label = label ~fallback:id title
+            ; description = description [ uploader; Some duration ]
+            })
+  in
+  log_source
+    ~source:"youtube"
+    ~query
+    ~returned:(List.length results)
+    ~playable:(List.length playable)
+    ~unplayable;
+  playable
 ;;
 
 let search_bilibili ~sessdata ~query =
   let%map.Deferred.Or_error results =
     Bilibili.search ?sessdata ~max_results:per_source_results query
   in
-  List.filter_map
-    results
-    ~f:(fun { Bilibili.Search_result.bvid; title; author; duration } ->
-      let%map.Option duration in
-      { Result.song = Song.of_bilibili_string bvid
-      ; label = label ~fallback:bvid title
-      ; description = description [ author; Some duration ]
-      })
+  let playable, unplayable =
+    List.partition_map
+      results
+      ~f:(fun ({ Bilibili.Search_result.bvid; title; author; duration } as result) ->
+        match duration with
+        | None -> Second ([%sexp_of: Bilibili.Search_result.t] result)
+        | Some duration ->
+          First
+            { Result.song = Song.of_bilibili_string bvid
+            ; label = label ~fallback:bvid title
+            ; description = description [ author; Some duration ]
+            })
+  in
+  log_source
+    ~source:"bilibili"
+    ~query
+    ~returned:(List.length results)
+    ~playable:(List.length playable)
+    ~unplayable;
+  playable
 ;;
 
 (* Interleave the two slates so they start out evenly mixed; this is also what
@@ -138,6 +184,10 @@ let merge ~query youtube bilibili =
   interleave youtube bilibili |> rank_by_relevance ~query |> Fn.flip List.take max_results
 ;;
 
+let count_source results source =
+  List.count results ~f:(fun { Result.song; _ } -> Poly.equal (Song.source song) source)
+;;
+
 (* Search YouTube and Bilibili concurrently, then merge the two equally-sized
    slates by our own relevance score. One source failing (e.g. Bilibili risk
    control) doesn't fail the whole search — we return the other's results; only if
@@ -145,8 +195,33 @@ let merge ~query youtube bilibili =
 let search ?bilibili_sessdata ~youtube ~query () =
   let%map.Deferred youtube_results = search_youtube ~youtube ~query
   and bilibili = search_bilibili ~sessdata:bilibili_sessdata ~query in
+  (* A single source failing is otherwise invisible from the outside: we discard
+     its error so the other source's results can still be shown, and the user just
+     sees a one-sided menu. Log it before it's dropped. *)
+  List.iter
+    [ "youtube", youtube_results; "bilibili", bilibili ]
+    ~f:(fun (source, result) ->
+      match result with
+      | Ok (_ : Result.t list) -> ()
+      | Error error ->
+        [%log.error
+          [%here]
+            "Search source failed"
+            (source : string)
+            (query : string)
+            (error : Error.t)]);
   match youtube_results, bilibili with
-  | Ok youtube, Ok bilibili -> Ok (merge ~query youtube bilibili)
+  | Ok youtube, Ok bilibili ->
+    let merged = merge ~query youtube bilibili in
+    (* The composition of the final menu, which is what the "all one platform"
+       complaints are actually about. *)
+    [%log.info
+      [%here]
+        "Merged search results"
+        (query : string)
+        ~youtube:(count_source merged `Youtube : int)
+        ~bilibili:(count_source merged `Bilibili : int)];
+    Ok merged
   | Ok results, Error _ | Error _, Ok results -> Ok (List.take results max_results)
   | Error youtube, Error bilibili -> Error (Error.of_list [ youtube; bilibili ])
 ;;

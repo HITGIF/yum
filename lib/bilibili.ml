@@ -1,5 +1,6 @@
 open! Core
 open! Async
+open! Common
 
 let headers =
   Cohttp.Header.of_list
@@ -10,6 +11,23 @@ let headers =
          json APIs are friendlier with one too. *)
     ; "referer", "https://www.bilibili.com"
     ]
+;;
+
+(* An empty [SESSDATA] is worse than no cookie at all: bilibili reads it as a
+   malformed credential and risk-controls essentially every request (measured on
+   one host: 20/20 attempts blocked with an empty value, versus roughly half that
+   anonymously). A flag wired to an unset environment variable expands to exactly
+   this, so treat an empty cookie as absent and say so loudly. *)
+let normalize_sessdata sessdata =
+  match Option.map sessdata ~f:String.strip with
+  | Some "" ->
+    [%log.error
+      [%here]
+        "Ignoring an empty Bilibili SESSDATA cookie: it is risk-controlled on every \
+         request, so this search is being treated as anonymous. Pass a real cookie or \
+         omit the flag."];
+    None
+  | sessdata -> sessdata
 ;;
 
 let validate_response ~(here : [%call_pos]) response =
@@ -182,6 +200,7 @@ let get_cid ~bvid ~part =
 
 let get_title ?sessdata ~bvid () =
   let headers =
+    let sessdata = normalize_sessdata sessdata in
     match sessdata with
     | Some sessdata -> Cohttp.Header.add headers "cookie" [%string "SESSDATA=%{sessdata}"]
     | None -> headers
@@ -285,14 +304,20 @@ let prime_cookies () =
         set_cookies_of_response response)
     with
     | Ok pairs -> pairs
-    | Error _ -> []
+    | Error exn ->
+      [%log.debug [%here] "Bilibili homepage cookie priming failed" (exn : Exn.t)];
+      []
   in
   if List.Assoc.mem from_homepage "buvid3" ~equal:String.equal
   then return from_homepage
   else (
     match%map get_json ~url:(Uri.of_string "https://api.bilibili.com/x/frontend/finger/spi") ~of_yojson:Api.Spi.t_of_yojson () with
     | Ok { b_3 } -> ("buvid3", b_3) :: from_homepage
-    | Error _ -> from_homepage)
+    | Error error ->
+      (* Without a buvid3 the search endpoint is far more likely to trip risk
+         control, so a failure here is worth seeing even though we carry on. *)
+      [%log.debug [%here] "Bilibili buvid3 fingerprint fetch failed" (error : Error.t)];
+      from_homepage)
 ;;
 
 let hmac_sha256_hex ~key message =
@@ -328,7 +353,12 @@ let get_bili_ticket ~headers =
       Yojson.Safe.from_string body |> member "data" |> member "ticket" |> to_string)
   with
   | Ok ticket when not (String.is_empty ticket) -> Some ticket
-  | Ok _ | Error _ -> None
+  | Ok (_ : string) ->
+    [%log.debug [%here] "Bilibili GenWebTicket returned an empty ticket"];
+    None
+  | Error exn ->
+    [%log.debug [%here] "Bilibili GenWebTicket request failed" (exn : Exn.t)];
+    None
 ;;
 
 (* "Activate" the buvid so risk control trusts it. Fire-and-forget. *)
@@ -344,7 +374,9 @@ let activate_buvid ~headers =
         (Uri.of_string "https://api.bilibili.com/x/internal/gaia-gateway/ExClimbWuzhi")
     in
     Cohttp_async.Body.to_string body |> Deferred.ignore_m)
-  |> Deferred.ignore_m
+  |> Deferred.map ~f:(function
+    | Ok () -> ()
+    | Error exn -> [%log.debug [%here] "Bilibili buvid activation failed" (exn : Exn.t)])
 ;;
 
 (* wbi signing: recent search endpoints require a [w_rid]/[wts] signature derived
@@ -406,25 +438,85 @@ let sign_params params ~mixin_key =
   add_w_rid (params @ [ "wts", wts ]) ~mixin_key
 ;;
 
-let search ?sessdata ~max_results query =
-  let%bind cookies = prime_cookies () in
-  (* A logged-in [SESSDATA] cookie lifts the request out of the anonymous
-     risk-control tier — the only thing that reliably clears search from a
-     datacenter IP. *)
-  let cookies =
-    match sessdata with
-    | Some sessdata -> ("SESSDATA", sessdata) :: cookies
-    | None -> cookies
-  in
-  let%bind ticket = get_bili_ticket ~headers:(with_cookies cookies headers) in
-  let cookies =
-    match ticket with
-    | Some ticket -> cookies @ [ "bili_ticket", ticket ]
-    | None -> cookies
-  in
+(* Priming costs five HTTP requests (homepage, spi, GenWebTicket, buvid
+   activation, nav) before the search itself even goes out, and it used to be
+   redone for every search and every retry. That request volume is precisely what
+   feeds the rate-based risk control we're trying to stay under, so prime once and
+   reuse it: [buvid3] is stable, [bili_ticket] lasts days, and the wbi key rotates
+   daily, which makes a short TTL comfortably conservative. Anything that gets
+   rejected calls {!invalidate}, so a retry still primes from scratch and remains
+   a genuinely new roll rather than a replay of the rejected session. *)
+module Session = struct
+  type t =
+    { cookies : (string * string) list
+    ; mixin_key : string
+    }
+
+  let ttl = Time_ns.Span.of_min 30.
+
+  (* Keyed on [sessdata] so swapping cookies can't silently reuse a session
+     primed for the other one, and holding the in-flight deferred rather than
+     just the result, so concurrent searches share one priming round rather than
+     racing to duplicate it. *)
+  let cached : (Time_ns.t * string option * t Deferred.Or_error.t) option ref = ref None
+
+  let invalidate () = cached := None
+
+  let prime ~sessdata =
+    let%bind cookies = prime_cookies () in
+    (* A logged-in [SESSDATA] cookie lifts the request out of the anonymous
+       risk-control tier, which is what most reliably clears search from a
+       datacenter IP. *)
+    let cookies =
+      match sessdata with
+      | Some sessdata -> ("SESSDATA", sessdata) :: cookies
+      | None -> cookies
+    in
+    let%bind ticket = get_bili_ticket ~headers:(with_cookies cookies headers) in
+    let cookies =
+      match ticket with
+      | Some ticket -> cookies @ [ "bili_ticket", ticket ]
+      | None -> cookies
+    in
+    let headers = with_cookies cookies headers in
+    let%bind () = activate_buvid ~headers in
+    (* Log cookie *names* only: [SESSDATA] is a credential. Which cookies survived
+       priming is the main thing separating a healthy session from one about to be
+       risk-controlled. *)
+    [%log.info
+      [%here]
+        "Primed a Bilibili session"
+        ~cookies:(List.map cookies ~f:fst : string list)
+        ~got_bili_ticket:(Option.is_some ticket : bool)];
+    let%map.Deferred.Or_error mixin_key = get_wbi_mixin_key ~headers in
+    { cookies; mixin_key }
+  ;;
+
+  let get ~sessdata =
+    let now = Time_ns.now () in
+    match !cached with
+    | Some (primed_at, for_sessdata, session)
+      when Option.equal String.equal for_sessdata sessdata
+           && Time_ns.O.(Time_ns.add primed_at ttl > now) -> session
+    | Some _ | None ->
+      let session = prime ~sessdata in
+      cached := Some (now, sessdata, session);
+      (* Never let a failed priming sit in the cache for the whole TTL — but clear
+         only our own entry, since a later prime may already have replaced it. *)
+      upon session (function
+        | Ok (_ : t) -> ()
+        | Error (_ : Error.t) ->
+          (match !cached with
+           | Some (_, _, current) when phys_equal current session -> invalidate ()
+           | Some _ | None -> ()));
+      session
+  ;;
+end
+
+let search_once ?sessdata ~max_results query =
+  let sessdata = normalize_sessdata sessdata in
+  let%bind.Deferred.Or_error { Session.cookies; mixin_key } = Session.get ~sessdata in
   let headers = with_cookies cookies headers in
-  let%bind () = activate_buvid ~headers in
-  let%bind.Deferred.Or_error mixin_key = get_wbi_mixin_key ~headers in
   let params =
     sign_params
       [ "search_type", "video"; "keyword", query; "page", "1" ]
@@ -435,6 +527,10 @@ let search ?sessdata ~max_results query =
       (Uri.of_string "https://api.bilibili.com/x/web-interface/wbi/search/type")
       params
   in
+  (* The fully-signed request URL. Carries no credential (those ride in the cookie
+     header), and is what you need to tell a rejected wbi signature apart from
+     plain risk control — paste it into curl to compare. *)
+  [%log.debug [%here] "Bilibili search url" ~url:(Uri.to_string url : string)];
   let%bind.Deferred.Or_error { Api.Search.result; v_voucher } =
     get_json ~headers ~url ~of_yojson:Api.Search.t_of_yojson ()
   in
@@ -443,12 +539,65 @@ let search ?sessdata ~max_results query =
     Deferred.Or_error.error_s
       [%message
         "Bilibili blocked the search with anti-bot risk control (no results \
-         returned). This is typically an IP-reputation problem on \
-         server/datacenter networks; searching from a residential network, or \
-         supplying a logged-in cookie, avoids it."
+         returned). This is intermittent: the same query with the same cookies is \
+         often served on a retry. A logged-in [SESSDATA] cookie and a residential \
+         IP both lower the hit rate, but neither eliminates it."
           (query : string)]
   | None ->
+    (* The quiet failure mode: a 200 with code 0 and an empty [result], so nothing
+       above errors and the search simply comes back with nothing in it. *)
+    [%log.info
+      [%here]
+        "Bilibili search returned results"
+        (query : string)
+        ~returned:(List.length result : int)
+        ~max_results:(max_results : int)];
     List.take result max_results |> List.map ~f:Search_result.of_api |> Deferred.Or_error.return
+;;
+
+(* Bilibili's risk control is intermittent rather than a stable property of the
+   host: the same query, with the same cookies and the same [SESSDATA], is
+   regularly blocked once and then served a second later. Retrying any error and
+   not just [v_voucher] is deliberate — the HTML-challenge page and the wbi key
+   fetch fail the same intermittent way. *)
+let search ?sessdata ~max_results query =
+  let attempt = Attempt.create ~max:3 () in
+  Deferred.repeat_until_finished () (fun () ->
+    match%bind search_once ?sessdata ~max_results query with
+    | Ok _ as result -> return (`Finished result)
+    | Error search_error ->
+      (* Drop the primed session on any failure, exhaustion included: these are the
+         cookies that were just rejected, and they are what both the next retry and
+         every search for the rest of the TTL would otherwise reuse. Re-priming is
+         what makes a retry a fresh roll rather than a replay. *)
+      Session.invalidate ();
+      (match Attempt.try_ attempt with
+       | Ok () ->
+         (* Blocks arrive in correlated bursts rather than as independent coin
+            flips — in testing a blocked run was usually blocked on every one of
+            its attempts — so back off geometrically to let the window pass
+            instead of spending all three retries inside it. *)
+         let retry_after =
+           Time_ns.Span.scale_int
+             (Time_ns.Span.of_ms 500.)
+             (Int.pow 2 (Attempt.attempt_number attempt - 1))
+         in
+         [%log.info
+           [%here]
+             [%string
+               "Bilibili search failed, retrying in %{retry_after#Time_ns.Span}..."]
+             (query : string)
+             (attempt : Attempt.t)
+             (search_error : Error.t)];
+         let%map () = Clock_ns.after retry_after in
+         `Repeat ()
+       | Error attempt_error ->
+         [%log.error
+           [%here]
+             "Bilibili search exhausted all attempts"
+             (query : string)
+             (search_error : Error.t)];
+         return (`Finished (Error (Error.of_list [ attempt_error; search_error ])))))
 ;;
 
 (* [video] is the BV id; [part] is the optional 1-based part number. *)
