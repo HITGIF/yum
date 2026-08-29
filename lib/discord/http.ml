@@ -103,6 +103,16 @@ module Create_message = struct
       [@@deriving sexp_of, yojson_of]
     end
 
+    module Select_option = struct
+      type t =
+        { label : string
+        ; value : string
+        ; description : string option [@default None]
+        ; emoji : Partial_emoji.t option [@default None]
+        }
+      [@@deriving sexp_of, yojson_of]
+    end
+
     type t =
       | Action_row of { components : t list }
       | Button of
@@ -111,8 +121,18 @@ module Create_message = struct
           ; label : string option [@default None]
           ; emoji : Partial_emoji.t option [@default None]
           }
-      | String_select
-      | Text_input
+      | String_select of
+          { custom_id : string
+          ; options : Select_option.t list
+          ; placeholder : string option [@default None]
+          }
+      | Text_input of
+          { custom_id : string
+          ; style : int
+          ; label : string
+          ; placeholder : string option [@default None]
+          ; required : bool option [@default None]
+          }
       | User_select
       | Role_select
       | Mentionable_select
@@ -191,6 +211,27 @@ module Create_message = struct
   ;;
 end
 
+module Edit_message = struct
+  (* Edits an existing message. [components] are passed through verbatim as raw
+     JSON (typically the message's own components echoed back), so they are not
+     re-typed through [Create_message.Component]; this is used to reset a select
+     menu to its unselected state. *)
+  let call ~auth_token ~user_agent ~channel_id ~message_id ~flags ~components =
+    let body = `Assoc [ "flags", Flags.yojson_of_t flags; "components", `List components ] in
+    call
+      (module Json)
+      `PATCH
+      ~body
+      ~auth_token
+      ~user_agent
+      [ "channels"
+      ; Model.Channel_id.to_string channel_id
+      ; "messages"
+      ; Model.Message_id.to_string message_id
+      ]
+  ;;
+end
+
 module Respond_interaction = struct
   module Type = struct
     type t =
@@ -231,6 +272,44 @@ module Respond_interaction = struct
       ~user_agent
       [ "interactions"
       ; Model.Interaction_id.to_string interation_id
+      ; Model.Interaction_token.to_string interaction_token
+      ; "callback"
+      ]
+  ;;
+end
+
+module Show_modal = struct
+  (* Responds to a component interaction by opening a modal (callback type 9).
+     [components] are action rows, each holding a single text input. *)
+  let call
+    ~auth_token
+    ~user_agent
+    ~interaction_id
+    ~interaction_token
+    ~custom_id
+    ~title
+    ~components
+    =
+    let body =
+      `Assoc
+        [ "type", `Int 9
+        ; ( "data"
+          , `Assoc
+              [ "custom_id", `String custom_id
+              ; "title", `String title
+              ; ( "components"
+                , `List (List.map components ~f:Create_message.Component.yojson_of_t) )
+              ] )
+        ]
+    in
+    call
+      (module Json)
+      `POST
+      ~body
+      ~auth_token
+      ~user_agent
+      [ "interactions"
+      ; Model.Interaction_id.to_string interaction_id
       ; Model.Interaction_token.to_string interaction_token
       ; "callback"
       ]
@@ -321,6 +400,53 @@ module%test _ = struct
     test [ Button { style = 1; custom_id = "1"; label = None; emoji = None } ];
     [%expect
       {| [ { "type": 2, "style": 1, "custom_id": "1", "label": null, "emoji": null } ] |}];
+    test
+      [ Action_row
+          { components =
+              [ String_select
+                  { custom_id = "pick"
+                  ; placeholder = Some "Choose…"
+                  ; options =
+                      [ { label = "First"
+                        ; value = "1"
+                        ; description = Some "the first"
+                        ; emoji = Some { name = "🅰️"; id = None; animated = None }
+                        }
+                      ; { label = "Second"; value = "2"; description = None; emoji = None }
+                      ]
+                  }
+              ]
+          }
+      ];
+    [%expect
+      {|
+      [
+        {
+          "type": 1,
+          "components": [
+            {
+              "type": 3,
+              "custom_id": "pick",
+              "options": [
+                {
+                  "label": "First",
+                  "value": "1",
+                  "description": "the first",
+                  "emoji": { "name": "🅰️", "id": null, "animated": null }
+                },
+                {
+                  "label": "Second",
+                  "value": "2",
+                  "description": null,
+                  "emoji": null
+                }
+              ],
+              "placeholder": "Choose…"
+            }
+          ]
+        }
+      ]
+      |}];
     return ()
   ;;
 end

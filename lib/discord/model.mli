@@ -259,6 +259,35 @@ module Gateway : sig
           type t =
             { custom_id : string
             ; component_type : int
+            ; values : string list
+            }
+          [@@deriving sexp_of]
+        end
+
+        module Message_ref : sig
+          type t =
+            { id : Message_id.t
+            ; components : Json.t list
+            }
+          [@@deriving sexp_of]
+        end
+
+        module Modal_submit : sig
+          module Input : sig
+            type t =
+              { custom_id : string
+              ; value : string
+              }
+            [@@deriving sexp_of]
+          end
+
+          module Action_row : sig
+            type t = { components : Input.t list } [@@deriving sexp_of]
+          end
+
+          type t =
+            { custom_id : string
+            ; components : Action_row.t list
             }
           [@@deriving sexp_of]
         end
@@ -267,6 +296,7 @@ module Gateway : sig
           type t =
             | Application_command of Application_command.t
             | Message_component of Message_component.t
+            | Modal_submit of Modal_submit.t
             | Unknown of Json.t
           [@@deriving sexp_of]
         end
@@ -279,6 +309,7 @@ module Gateway : sig
           ; application_id : User_id.t
           ; member : Member.t
           ; data : Data.t
+          ; message : Message_ref.t option
           }
         [@@deriving sexp_of]
       end

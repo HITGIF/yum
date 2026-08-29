@@ -5,9 +5,10 @@ type t
 
 val create
   :  ffmpeg_path:File_path.Absolute.t
-  -> yt_dlp_path:File_path.Absolute.t
+  -> youtube:Youtube.t
   -> guild_id:Discord.Model.Guild_id.t
   -> agent:Agent.t
+  -> song_title:Song_title.t
   -> voice_channel:Discord.Model.Channel_id.t
   -> idle_songs:Song.t Nonempty_list.t
   -> frames_writer:Audio.Pcm_frame.t Queue.t Pipe.Writer.t option
@@ -30,3 +31,7 @@ val skip : t -> unit
 val started : t -> bool
 val playing : t -> Song.t option
 val next_song : t -> Song.t
+
+(** The explicitly-requested songs waiting to play, in order (excludes the
+    currently-playing song and the idle-shuffle fallback). *)
+val queued : t -> Song.t list
