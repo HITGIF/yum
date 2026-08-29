@@ -394,19 +394,29 @@ let key_of_wbi_url url =
   Uri.of_string url |> Uri.path |> Filename.basename |> Filename.split_extension |> fst
 ;;
 
-let get_wbi_mixin_key ~headers =
+(* nav returns code -101 when anonymous but still includes the wbi keys, so it
+   doubles as the one place that can tell us whether [SESSDATA] is actually
+   authenticating. That matters because an expired or server-side-invalidated
+   cookie is otherwise indistinguishable from having no cookie at all: search
+   keeps working, just at the anonymous risk-control tier, and the only visible
+   symptom is a block rate that creeps up. *)
+let get_nav ~headers =
   let url = Uri.of_string "https://api.bilibili.com/x/web-interface/nav" in
   let%bind _response, body = Cohttp_async.Client.get ~headers url in
   let%map body = Cohttp_async.Body.to_string body in
-  (* nav returns code -101 when anonymous, but still includes the wbi keys. *)
   Or_error.try_with (fun () ->
     let open Yojson.Safe.Util in
-    let wbi = Yojson.Safe.from_string body |> member "data" |> member "wbi_img" in
+    let data = Yojson.Safe.from_string body |> member "data" in
+    let wbi = data |> member "wbi_img" in
     let raw =
       key_of_wbi_url (wbi |> member "img_url" |> to_string)
       ^ key_of_wbi_url (wbi |> member "sub_url" |> to_string)
     in
-    String.init 32 ~f:(fun i -> raw.[mixin_key_enc_tab.(i)]))
+    let mixin_key = String.init 32 ~f:(fun i -> raw.[mixin_key_enc_tab.(i)]) in
+    let is_logged_in =
+      data |> member "isLogin" |> to_bool_option |> Option.value ~default:false
+    in
+    mixin_key, is_logged_in)
 ;;
 
 (* Match JavaScript's encodeURIComponent-via-URLSearchParams: keep [A-Za-z0-9_.-~],
@@ -480,6 +490,19 @@ module Session = struct
     in
     let headers = with_cookies cookies headers in
     let%bind () = activate_buvid ~headers in
+    let%map.Deferred.Or_error mixin_key, is_logged_in = get_nav ~headers in
+    (* A cookie that no longer authenticates is the failure this is here to catch:
+       bilibili keeps serving searches, just anonymously, so nothing errors and the
+       only symptom is more frequent risk-control blocks. *)
+    (match sessdata, is_logged_in with
+     | Some _, false ->
+       [%log.error
+         [%here]
+           "Bilibili rejected the SESSDATA cookie: nav reports this session is \
+            not logged in, so the cookie has expired or been invalidated and \
+            searches are running anonymously. Replace it with a fresh SESSDATA \
+            copied from a logged-in browser."]
+     | Some _, true | None, (true | false) -> ());
     (* Log cookie *names* only: [SESSDATA] is a credential. Which cookies survived
        priming is the main thing separating a healthy session from one about to be
        risk-controlled. *)
@@ -487,8 +510,8 @@ module Session = struct
       [%here]
         "Primed a Bilibili session"
         ~cookies:(List.map cookies ~f:fst : string list)
-        ~got_bili_ticket:(Option.is_some ticket : bool)];
-    let%map.Deferred.Or_error mixin_key = get_wbi_mixin_key ~headers in
+        ~got_bili_ticket:(Option.is_some ticket : bool)
+        ~logged_in:(is_logged_in : bool)];
     { cookies; mixin_key }
   ;;
 
