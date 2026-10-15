@@ -80,7 +80,7 @@ let get_json ?(headers = headers) ~url ~of_yojson () =
 module Api = struct
   open Ppx_yojson_conv_lib.Yojson_conv.Primitives
 
-  (* https://api.bilibili.com/x/web-interface/view?bvid=... *)
+  (* https://api.bilibili.com/x/web-interface/wbi/view?bvid=... *)
   module View = struct
     type page =
       { cid : int
@@ -182,12 +182,18 @@ module Search_result = struct
   ;;
 end
 
+(* The plain [/x/web-interface/view] endpoint answers 412 Precondition Failed
+   (risk control) to our spoofed browser user-agent, while the [wbi/] variant
+   serves the same payload to the same request, even without a wbi signature. *)
+let view_url ~bvid =
+  Uri.of_string [%string "https://api.bilibili.com/x/web-interface/wbi/view?bvid=%{bvid}"]
+;;
+
 (* Resolve the [cid] (the id bilibili uses to identify a specific playable part)
    for the requested [part], defaulting to the first part. *)
 let get_cid ~bvid ~part =
   let url =
-    Uri.of_string
-      [%string "https://api.bilibili.com/x/web-interface/view?bvid=%{bvid}"]
+    view_url ~bvid
   in
   let%map.Deferred.Or_error view = get_json ~url ~of_yojson:Api.View.t_of_yojson () in
   match part with
@@ -206,8 +212,7 @@ let get_title ?sessdata ~bvid () =
     | None -> headers
   in
   let url =
-    Uri.of_string
-      [%string "https://api.bilibili.com/x/web-interface/view?bvid=%{bvid}"]
+    view_url ~bvid
   in
   let%map.Deferred.Or_error view =
     get_json ~headers ~url ~of_yojson:Api.View.t_of_yojson ()
