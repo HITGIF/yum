@@ -45,7 +45,12 @@ let validate_response ~(here : [%call_pos]) response =
    API envelope: [{ "code": 0, "message": "OK", "data": ... }]. A non-zero
    [code] is an application-level error even though the HTTP status is 200. *)
 let get_json ?(headers = headers) ~url ~of_yojson () =
-  let%bind response, body = Cohttp_async.Client.get ~headers url in
+  (* Connection failures (e.g. a TCP connect timeout) raise rather than return;
+     left uncaught they escape to the main monitor and take the whole bot down. *)
+  let%bind.Deferred.Or_error response, body =
+    Monitor.try_with_or_error (fun () -> Cohttp_async.Client.get ~headers url)
+    |> Deferred.Or_error.tag_s_lazy ~tag:[%lazy_sexp { url : string = Uri.to_string url }]
+  in
   let%bind.Deferred.Or_error () =
     validate_response response
     |> Or_error.tag_s_lazy ~tag:[%lazy_sexp { url : string = Uri.to_string url }]
@@ -407,7 +412,9 @@ let key_of_wbi_url url =
    symptom is a block rate that creeps up. *)
 let get_nav ~headers =
   let url = Uri.of_string "https://api.bilibili.com/x/web-interface/nav" in
-  let%bind _response, body = Cohttp_async.Client.get ~headers url in
+  let%bind.Deferred.Or_error _response, body =
+    Monitor.try_with_or_error (fun () -> Cohttp_async.Client.get ~headers url)
+  in
   let%map body = Cohttp_async.Body.to_string body in
   Or_error.try_with (fun () ->
     let open Yojson.Safe.Util in
@@ -544,7 +551,11 @@ end
 let search_once ?sessdata ~max_results query =
   let sessdata = normalize_sessdata sessdata in
   let%bind.Deferred.Or_error { Session.cookies; mixin_key } = Session.get ~sessdata in
-  let headers = with_cookies cookies headers in
+  (* Search is risk-controlled (412 or an empty body) unless the referer is the
+     search subdomain, the way the web client sends it. *)
+  let headers =
+    Cohttp.Header.replace (with_cookies cookies headers) "referer" "https://search.bilibili.com/"
+  in
   let params =
     sign_params
       [ "search_type", "video"; "keyword", query; "page", "1" ]
@@ -552,7 +563,10 @@ let search_once ?sessdata ~max_results query =
   in
   let url =
     Uri.add_query_params'
-      (Uri.of_string "https://api.bilibili.com/x/web-interface/wbi/search/type")
+      (* Not the [wbi/] variant: as of 2026-10 that answers every request, signed
+         or not, with a [v_voucher] risk-control block, while the plain endpoint
+         serves the same query from the same session. *)
+      (Uri.of_string "https://api.bilibili.com/x/web-interface/search/type")
       params
   in
   (* The fully-signed request URL. Carries no credential (those ride in the cookie
