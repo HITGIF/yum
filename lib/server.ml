@@ -50,7 +50,12 @@ module State = struct
     Hashtbl.remove t.players guild_id
   ;;
 
-  let set_player ?agent t ~guild_id ~voice_channel ~frames_writer =
+  let leave t ~gateway ~guild_id =
+    close_player t ~guild_id;
+    Discord.Gateway.leave_voice gateway ~guild_id
+  ;;
+
+  let set_player ?agent t ~gateway ~guild_id ~voice_channel ~frames_writer =
     Hashtbl.update_and_return t.players guild_id ~f:(function
       | None ->
         let agent =
@@ -67,6 +72,7 @@ module State = struct
             ~voice_channel
             ~idle_songs:t.idle_songs
             ~frames_writer
+            ~on_finished:(fun () -> leave t ~gateway ~guild_id)
         in
         player
       | Some player ->
@@ -104,7 +110,7 @@ let with_detail message = function
 let join_user_voice ~state ~gateway ~agent ~guild_id ~user_id how_to_respond =
   match%bind Discord.Gateway.join_user_voice gateway ~guild_id ~user_id with
   | `Ok voice_channel ->
-    State.set_player state ~agent ~guild_id ~voice_channel ~frames_writer:None
+    State.set_player state ~agent ~gateway ~guild_id ~voice_channel ~frames_writer:None
     |> Some
     |> return
   | `User_not_in_voice_channel ->
@@ -227,8 +233,7 @@ let handle_play_now ~state ~gateway ~agent ~guild_id ~user_id ~song how_to_respo
 
 let handle_stop ~state ~gateway ~agent ~guild_id how_to_respond =
   let%bind () = respond ~emoji_end:Stop_button agent how_to_respond "Stopped" in
-  State.close_player state ~guild_id;
-  Discord.Gateway.leave_voice gateway ~guild_id
+  State.leave state ~gateway ~guild_id
 ;;
 
 let handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond =
@@ -236,6 +241,7 @@ let handle_start ~state ~gateway ~agent ~guild_id ~user_id how_to_respond =
   | None -> return ()
   | Some player ->
     let%map () = respond ~emoji_end:Yum agent how_to_respond "Started" in
+    Player.enable_shuffle player;
     Player.start_once player
 ;;
 
@@ -367,8 +373,7 @@ let handle_voice_state_update ~state ~gateway ~guild_id =
               let%bind () =
                 Agent.send_message ~emoji:Wave agent "Leaving empty voice channel"
               in
-              State.close_player state ~guild_id;
-              Discord.Gateway.leave_voice gateway ~guild_id)))
+              State.leave state ~gateway ~guild_id)))
 ;;
 
 let handle_events ~(state : State.t) ~gateway event =
@@ -385,6 +390,7 @@ let handle_events ~(state : State.t) ~gateway event =
   | Voice { guild_id; event = Voice_ready { channel_id; frames_writer } } ->
     State.set_player
       state
+      ~gateway
       ~guild_id
       ~voice_channel:channel_id
       ~frames_writer:(Some frames_writer)

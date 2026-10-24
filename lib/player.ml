@@ -10,13 +10,19 @@ open struct
 end
 
 module Songs = struct
+  (* [shuffle] decides what happens once [requested] runs dry: keep shuffling
+     through [idle], or stop. *)
   type t =
     { requested : Song.t Deque.t
     ; idle : Song.t Inf_random_sequence.t
+    ; mutable shuffle : bool
     }
 
   let create ~idle_songs =
-    { requested = Deque.create (); idle = Inf_random_sequence.create idle_songs }
+    { requested = Deque.create ()
+    ; idle = Inf_random_sequence.create idle_songs
+    ; shuffle = false
+    }
   ;;
 
   let enqueue_front t = Deque.enqueue_front t.requested
@@ -24,14 +30,14 @@ module Songs = struct
 
   let next t =
     match Deque.dequeue_front t.requested with
-    | Some song -> song
-    | None -> Inf_random_sequence.next t.idle
+    | Some song -> Some song
+    | None -> Option.some_if t.shuffle (Inf_random_sequence.next t.idle)
   ;;
 
   let peak t =
     match Deque.peek_front t.requested with
-    | Some song -> song
-    | None -> Inf_random_sequence.peak t.idle
+    | Some song -> Some song
+    | None -> Option.some_if t.shuffle (Inf_random_sequence.peak t.idle)
   ;;
 end
 
@@ -47,6 +53,7 @@ type t =
   ; songs : Songs.t
   ; skip : (unit, read_write) Bvar.t
   ; on_new_frames_writer : (unit, read_write) Bvar.t
+  ; on_finished : unit -> unit Deferred.t
   ; started : unit Set_once.t
   ; closed : unit Set_once.t
   }
@@ -71,6 +78,7 @@ let close
   ; songs = _
   ; skip = _
   ; on_new_frames_writer = _
+  ; on_finished = _
   ; started = _
   ; closed
   }
@@ -220,54 +228,63 @@ let rec play_loop ({ guild_id; _ } as t) =
     [%log.debug [%here] "Player closed" (guild_id : Guild_id.t)];
     return ()
   | false ->
-    let cancellation_token = Bvar.wait t.skip in
-    let song = Songs.next t.songs in
-    prime_title t song;
-    [%log.info [%here] "Playing song" (guild_id : Guild_id.t) (song : Song.t)];
-    let%bind () = Agent.send_message ~emoji:Arrow_forward t.agent (Song.to_url song) in
-    let%bind () =
-      Agent.send_message'
-        ~buttons:
-          [ { style = Secondary
-            ; action = Skip
-            ; label = Some "Skip"
-            ; emoji = Some Fast_forward
-            }
-          ; { style = Secondary
-            ; action = Stop
-            ; label = Some "Stop"
-            ; emoji = Some Stop_button
-            }
-          ; { style = Secondary
-            ; action = Start
-            ; label = Some "Start"
-            ; emoji = Some Arrow_forward
-            }
-          ; { style = Secondary
-            ; action = Play song
-            ; label = Some "Play"
-            ; emoji = Some Arrow_double_up
-            }
-          ; { style = Secondary
-            ; action = Play_now song
-            ; label = Some "Play!"
-            ; emoji = Some Arrow_up
-            }
-          ; { style = Secondary; action = Search; label = Some "Search"; emoji = Some Mag }
-          ; { style = Secondary
-            ; action = Queue
-            ; label = Some "Queue"
-            ; emoji = Some Clipboard
-            }
-          ]
-        t.agent
-        None
-    in
-    t.playing <- Some song;
-    let%bind () = play ~cancellation_token t song in
-    t.playing <- None;
-    [%log.info [%here] "Done playing song" (guild_id : Guild_id.t) (song : Song.t)];
-    play_loop t
+    (match Songs.next t.songs with
+     | None ->
+       (* Only reachable when not shuffling: everything requested has played,
+          so leave instead of idling in the channel. *)
+       [%log.info [%here] "No more songs, finishing" (guild_id : Guild_id.t)];
+       let%bind () = Agent.send_message ~emoji:Wave t.agent "Done playing, leaving" in
+       t.on_finished ()
+     | Some song -> play_song t song)
+
+and play_song ({ guild_id; _ } as t) song =
+  let cancellation_token = Bvar.wait t.skip in
+  prime_title t song;
+  [%log.info [%here] "Playing song" (guild_id : Guild_id.t) (song : Song.t)];
+  let%bind () = Agent.send_message ~emoji:Arrow_forward t.agent (Song.to_url song) in
+  let%bind () =
+    Agent.send_message'
+      ~buttons:
+        [ { style = Secondary
+          ; action = Skip
+          ; label = Some "Skip"
+          ; emoji = Some Fast_forward
+          }
+        ; { style = Secondary
+          ; action = Stop
+          ; label = Some "Stop"
+          ; emoji = Some Stop_button
+          }
+        ; { style = Secondary
+          ; action = Start
+          ; label = Some "Start"
+          ; emoji = Some Arrow_forward
+          }
+        ; { style = Secondary
+          ; action = Play song
+          ; label = Some "Play"
+          ; emoji = Some Arrow_double_up
+          }
+        ; { style = Secondary
+          ; action = Play_now song
+          ; label = Some "Play!"
+          ; emoji = Some Arrow_up
+          }
+        ; { style = Secondary; action = Search; label = Some "Search"; emoji = Some Mag }
+        ; { style = Secondary
+          ; action = Queue
+          ; label = Some "Queue"
+          ; emoji = Some Clipboard
+          }
+        ]
+      t.agent
+      None
+  in
+  t.playing <- Some song;
+  let%bind () = play ~cancellation_token t song in
+  t.playing <- None;
+  [%log.info [%here] "Done playing song" (guild_id : Guild_id.t) (song : Song.t)];
+  play_loop t
 ;;
 
 let start_once t =
@@ -277,6 +294,7 @@ let start_once t =
 ;;
 
 let started t = Set_once.is_some t.started
+let enable_shuffle t = t.songs.shuffle <- true
 
 let queue ({ guild_id; _ } as t) song =
   [%log.info [%here] "Queueing song" (guild_id : Guild_id.t) (song : Song.t)];
@@ -316,6 +334,7 @@ let create
   ~voice_channel
   ~idle_songs
   ~frames_writer
+  ~on_finished
   =
   { ffmpeg_path
   ; youtube
@@ -328,6 +347,7 @@ let create
   ; songs = Songs.create ~idle_songs
   ; skip = Bvar.create ()
   ; on_new_frames_writer = Bvar.create ()
+  ; on_finished
   ; started = Set_once.create ()
   ; closed = Set_once.create ()
   }
