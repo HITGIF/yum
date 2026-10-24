@@ -204,7 +204,7 @@ let send_identify t =
 let send_voice_server_update t ~guild_id ~channel_id =
   write_upon_connected
     t
-    (Voice_state_update { guild_id; channel_id; self_mute = false; self_deaf = false })
+    (Voice_state_update { guild_id; channel_id; self_mute = false; self_deaf = true })
 ;;
 
 let join_voice t ~guild_id ~channel_id =
