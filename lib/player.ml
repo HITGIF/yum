@@ -94,7 +94,9 @@ let set_voice_channel t channel_id = t.voice_channel <- channel_id
 (* Warm the title cache in the background so [/queue] (and anything else showing
    titles) doesn't have to wait. Cached and deduped, so priming a song already
    primed is cheap. *)
-let prime_title t song = don't_wait_for (Deferred.ignore_m (Song_title.get t.song_title song))
+let prime_title t song =
+  don't_wait_for (Deferred.ignore_m (Song_title.get t.song_title song))
+;;
 
 let set_frames_writer t frames_writer =
   let old_frames_writer = t.frames_writer in
@@ -148,9 +150,7 @@ let play ~cancellation_token ({ guild_id; youtube; ffmpeg_path; _ } as t) song =
   let process_result ~tag = function
     | Ok () -> return ()
     | Error error ->
-      let retryable =
-        [ "HTTP Error 403: Forbidden"; "The downloaded file is empty" ]
-      in
+      let retryable = [ "HTTP Error 403: Forbidden"; "The downloaded file is empty" ] in
       let ignorable =
         [ "Broken pipe"; "Did not get any data blocks"; "Interrupted by user" ]
       in
@@ -233,7 +233,6 @@ let rec play_loop ({ guild_id; _ } as t) =
        (* Only reachable when not shuffling: everything requested has played,
           so leave instead of idling in the channel. *)
        [%log.info [%here] "No more songs, finishing" (guild_id : Guild_id.t)];
-       let%bind () = Agent.send_message ~emoji:Wave t.agent "Done playing, leaving" in
        t.on_finished ()
      | Some song -> play_song t song)
 

@@ -369,10 +369,6 @@ let handle_voice_state_update ~state ~gateway ~guild_id =
               return ()
             | `Leave ->
               [%log.info [%here] "Leaving empty voice channel" (guild_id : Guild_id.t)];
-              let agent = Agent.create ~auth_token:state.auth_token ~channel_id in
-              let%bind () =
-                Agent.send_message ~emoji:Wave agent "Leaving empty voice channel"
-              in
               State.leave state ~gateway ~guild_id)))
 ;;
 
